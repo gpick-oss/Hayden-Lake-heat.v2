@@ -1,0 +1,5 @@
+.venv/
+data/
+game/node_modules/
+game/dist/
+game/public/world/

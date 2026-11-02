@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hayden Lake Run</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1116; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; color: #fff; }
+  canvas { display: block; }
+  .hud { position: fixed; pointer-events: none; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
+  #tl { top: 16px; left: 18px; }
+  #time { font-size: 38px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  #tl .row { font-size: 15px; opacity: .9; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  #pos { font-size: 26px; font-weight: 700; }
+  #br { bottom: 22px; right: 26px; text-align: right; }
+  #speed { font-size: 72px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+  #br small { font-size: 16px; opacity: .8; }
+  #gear { display: inline-block; font-size: 24px; font-weight: 700; margin-left: 10px; padding: 0 8px; border: 2px solid rgba(255,255,255,.7); border-radius: 6px; }
+  #rpmbar { width: 220px; height: 6px; background: rgba(255,255,255,.2); border-radius: 3px; margin-top: 8px; margin-left: auto; overflow: hidden; }
+  #rpm { height: 100%; background: linear-gradient(90deg, #6cf, #fd4 70%, #f43); }
+  #surface { font-size: 13px; letter-spacing: .1em; color: #e8c88a; height: 16px; }
+  #minimap { position: fixed; bottom: 18px; left: 18px; width: 150px; height: 224px; border-radius: 10px; border: 2px solid rgba(255,255,255,.5); box-shadow: 0 4px 18px rgba(0,0,0,.5); pointer-events: none; }
+  #count { top: 30%; left: 0; right: 0; text-align: center; font-size: 120px; font-weight: 900; transition: opacity .3s; }
+  #flash { top: 18%; left: 0; right: 0; text-align: center; font-size: 26px; font-weight: 700; transition: opacity .4s; opacity: 0; }
+  #wrong { top: 40%; left: 0; right: 0; text-align: center; font-size: 46px; font-weight: 900; color: #ff4a3a; opacity: 0; transition: opacity .3s; }
+  #help { top: 16px; right: 18px; font-size: 12px; opacity: .75; text-align: right; line-height: 1.6; }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #0d1116; z-index: 10; }
+  #loading h1 { font-size: 34px; margin: 0 0 8px; letter-spacing: .02em; }
+  #loading p { opacity: .7; margin: 0; text-align: center; }
+  #result { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.45); }
+  #result[hidden], #loading[hidden] { display: none; }
+  #result div { text-align: center; }
+  #result-time { font-size: 64px; font-weight: 800; }
+  #result-pos { font-size: 28px; font-weight: 700; }
+</style>
+</head>
+<body>
+<div id="loading"><div><h1>Hayden Lake Run</h1><p id="loading-msg">Loading…</p><p style="margin-top:14px;font-size:13px">E Hayden Lake Rd · 14.5 mi · real lidar terrain, trees and buildings</p></div></div>
+<div class="hud" id="tl">
+  <div id="time">0:00.00</div>
+  <div class="row"><span id="pos"></span> &nbsp; <span id="cp"></span></div>
+  <div class="row" id="dist"></div>
+  <div class="row" id="best"></div>
+</div>
+<div class="hud" id="br">
+  <div id="surface"></div>
+  <div><span id="speed">0</span><span id="gear">1</span></div>
+  <small>MPH</small>
+  <div id="rpmbar"><div id="rpm"></div></div>
+</div>
+<div class="hud" id="help">
+  W/↑ gas · S/↓ brake/reverse · A D/← → steer · Space handbrake<br>
+  R reset to road · C camera · M mute · Q quality: <span id="quality"></span><br>
+  Gamepad: RT/LT, stick, A handbrake, Y reset
+</div>
+<canvas id="minimap" width="300" height="448"></canvas>
+<div class="hud" id="count"></div>
+<div class="hud" id="flash"></div>
+<div class="hud" id="wrong">WRONG WAY</div>
+<div id="result" hidden><div><div id="result-pos"></div><div id="result-time"></div><div id="result-best"></div><p>Press Enter to race again</p></div></div>
+<script type="module" src="/src/main.js"></script>
+</body>
+</html>
