@@ -39,6 +39,23 @@
   #result div { text-align: center; }
   #result-time { font-size: 64px; font-weight: 800; }
   #result-pos { font-size: 28px; font-weight: 700; }
+  #result-rivals { opacity: .85; margin-top: 6px; }
+  #section { top: 52px; left: 0; right: 0; text-align: center; font-size: 15px; font-weight: 600; opacity: .9; }
+  #notes { position: fixed; top: 84px; left: 50%; transform: translateX(-50%); display: flex; gap: 14px; align-items: center; pointer-events: none;
+    color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.8); filter: drop-shadow(0 1px 2px rgba(0,0,0,.8)); }
+  #notes[hidden] { display: none; }
+  #notes .note { display: flex; align-items: center; gap: 6px; font: 700 22px 'Courier New', monospace; background: rgba(0,0,0,.35); padding: 4px 10px; border-radius: 8px; }
+  #notes .note.later { font-size: 15px; opacity: .75; }
+  #menu { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(5,8,12,.72); z-index: 20; font-size: 15px; }
+  #menu[hidden] { display: none; }
+  #menu > * { width: min(720px, 92vw); }
+  .menu-title { font-size: 26px; font-weight: 800; margin-bottom: 10px; }
+  .menu-rows { background: rgba(20,24,30,.92); border: 1px solid rgba(255,255,255,.15); border-radius: 10px; padding: 6px; max-height: 74vh; overflow: auto; }
+  .menu-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 12px; border-radius: 6px; cursor: pointer; }
+  .menu-row.sel { background: rgba(80,140,255,.35); }
+  .menu-row.action { font-weight: 700; color: #cfe0ff; }
+  .menu-label { opacity: .85; } .menu-val b { cursor: pointer; padding: 0 8px; color: #9cf; }
+  .menu-foot { margin-top: 8px; opacity: .75; font-size: 13px; }
 </style>
 </head>
 <body>
@@ -57,16 +74,19 @@
   <div id="rpmbar"><div id="rpm"></div><div id="redline"></div></div>
 </div>
 <div class="hud" id="help">
-  W/↑ gas · S/↓ brake (hold at a stop = reverse) · A D/← → steer · Space handbrake<br>
-  E/Q shift up/down · T auto/manual · C camera (chase, far, cockpit, hood)<br>
-  L racing line · K car collisions · P demo lap · R reset · M mute · O quality: <span id="quality"></span><br>
-  Gamepad: RT/LT, stick, RB/LB shift, A handbrake, B camera, Y reset, D-pad up line / down collisions
+  <b>Esc: options</b> · W/↑ gas · S/↓ brake (hold at a stop = reverse) · A D/← → steer · Space handbrake<br>
+  E/Q shift · T auto/manual · C camera · L racing line · K collisions · N night · H high beams<br>
+  P demo lap · R reset to road · Backspace restart · M mute<br>
+  Pad: Start options, RT/LT, stick, RB/LB shift, A handbrake, B camera, Y reset
 </div>
 <canvas id="minimap" width="300" height="448"></canvas>
+<div class="hud" id="section"></div>
+<div id="notes" hidden></div>
+<div id="menu" hidden></div>
 <div class="hud" id="count"></div>
 <div class="hud" id="flash"></div>
 <div class="hud" id="wrong">WRONG WAY</div>
-<div id="result" hidden><div><div id="result-pos"></div><div id="result-time"></div><div id="result-best"></div><p>Press Enter to race again</p></div></div>
+<div id="result" hidden><div><div id="result-pos"></div><div id="result-time"></div><div id="result-best"></div><div id="result-rivals"></div><p>Enter: go again · Esc: options</p></div></div>
 <script type="module" src="/src/main.js"></script>
 </body>
 </html>

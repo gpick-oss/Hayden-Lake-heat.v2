@@ -23,9 +23,9 @@ export class RacingLine {
     this.mesh.visible = false;
   }
 
-  static async load(track) {
+  static async load(track, file = 'racing_line.json') {
     try {
-      const r = await fetch('world/racing_line.json');
+      const r = await fetch('world/' + file);
       if (r.ok && (r.headers.get('content-type') || '').includes('json')) return new RacingLine(await r.json(), track);
     } catch { }
     return null;

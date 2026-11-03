@@ -564,3 +564,72 @@ function brzDetails(H) {
   }
   add(box(0.34, 0.12, 0.02, 0, 0.58, -2.18), M.black, H.shell, false);
 }
+
+// =============================================================================================
+// Traffic: everyday cars you'd meet on E Hayden Lake Rd — a midsize sedan, an SUV and a crew-cab pickup.
+const CIV = {
+  sedan: {
+    ZF: 1.4, ZR: -1.4, R: 0.33, arch: 0.38, flare: 0.01, rimR: 0.216, tyreW: 0.215, trackF: 1.58, trackR: 1.58,
+    wheelStyle: 'ten', bigBrake: false, cowl: 0.75, deck: -1.65, roof: [-0.27, -1.15], cPillar: [], bPillars: [-0.55], sail: [-1.18, -1.66],
+    hoodCam: [1.5, 1.0], cab: { dashY: 0.95, seatZ: -0.4, eyeY: 1.18, rearSeat: -1.2 },
+    body: [[2.42, 0.28, 0.66, 0.80, 0.58, 0.62], [2.35, 0.24, 0.76, 0.88, 0.66, 0.72], [2.10, 0.22, 0.82, 0.91, 0.72, 0.80], [1.40, 0.22, 0.88, 0.92, 0.78, 0.82],
+      [0.75, 0.22, 0.935, 0.92, 0.82, 0.82], [0.0, 0.22, 0.97, 0.92, 0.86, 0.84], [-1.0, 0.22, 1.0, 0.92, 0.90, 0.83], [-1.65, 0.23, 1.03, 0.91, 0.92, 0.80],
+      [-2.1, 0.26, 1.04, 0.89, 0.93, 0.76], [-2.38, 0.33, 1.02, 0.84, 0.91, 0.70], [-2.43, 0.40, 0.97, 0.80, 0.88, 0.64]],
+    glass: [[0.75, 0.935, 0.945, 0.84, 0.74], [0.4, 0.95, 1.15, 0.84, 0.72], [0.05, 0.96, 1.33, 0.84, 0.70], [-0.27, 0.97, 1.44, 0.845, 0.68],
+      [-0.8, 0.99, 1.45, 0.85, 0.67], [-1.15, 1.01, 1.38, 0.84, 0.66], [-1.45, 1.02, 1.22, 0.82, 0.64], [-1.65, 1.03, 1.05, 0.80, 0.62]],
+    lamps: { front: 2.38, rear: -2.4, x: 0.66, y: 0.7, yRear: 0.9 },
+  },
+  suv: {
+    ZF: 1.32, ZR: -1.32, R: 0.35, arch: 0.41, flare: 0.02, rimR: 0.216, tyreW: 0.225, trackF: 1.57, trackR: 1.57,
+    wheelStyle: 'ten', bigBrake: false, cowl: 0.75, deck: -2.24, roof: [-0.05, -2.0], cPillar: [[-2.0, -2.22]], bPillars: [-0.55, -1.45],
+    hoodCam: [1.4, 1.2], cab: { dashY: 1.05, seatZ: -0.4, eyeY: 1.38, rearSeat: -1.3 },
+    body: [[2.32, 0.34, 0.80, 0.80, 0.70, 0.62], [2.25, 0.30, 0.90, 0.88, 0.78, 0.74], [2.0, 0.28, 0.96, 0.905, 0.85, 0.80], [1.3, 0.28, 1.02, 0.91, 0.92, 0.82],
+      [0.75, 0.28, 1.065, 0.91, 0.96, 0.82], [0.0, 0.28, 1.08, 0.91, 0.99, 0.84], [-1.4, 0.29, 1.10, 0.91, 1.02, 0.84], [-2.0, 0.31, 1.10, 0.90, 1.03, 0.82],
+      [-2.24, 0.36, 1.10, 0.88, 1.02, 0.78], [-2.33, 0.45, 1.04, 0.84, 1.0, 0.74]],
+    glass: [[0.75, 1.065, 1.075, 0.84, 0.76], [0.45, 1.07, 1.30, 0.845, 0.74], [0.15, 1.08, 1.52, 0.85, 0.72], [-0.05, 1.085, 1.66, 0.85, 0.71],
+      [-1.0, 1.1, 1.69, 0.86, 0.71], [-1.9, 1.10, 1.67, 0.85, 0.70], [-2.1, 1.10, 1.58, 0.84, 0.69], [-2.2, 1.10, 1.30, 0.83, 0.68], [-2.24, 1.10, 1.12, 0.82, 0.67]],
+    lamps: { front: 2.28, rear: -2.3, x: 0.68, y: 0.86, yRear: 1.0 },
+  },
+  pickup: {
+    ZF: 1.85, ZR: -1.85, R: 0.40, arch: 0.47, flare: 0.03, rimR: 0.254, tyreW: 0.27, trackF: 1.70, trackR: 1.70,
+    wheelStyle: 'ten', bigBrake: false, cowl: 1.15, deck: -0.65, roof: [0.45, -0.55], cPillar: [], bPillars: [-0.05],
+    hoodCam: [1.9, 1.4], cab: { dashY: 1.25, seatZ: 0.0, eyeY: 1.6, rearSeat: -0.45 },
+    body: [[2.95, 0.40, 0.98, 0.86, 0.88, 0.70], [2.88, 0.36, 1.10, 0.96, 0.98, 0.84], [2.6, 0.34, 1.16, 0.99, 1.04, 0.90], [1.6, 0.34, 1.22, 1.0, 1.10, 0.92],
+      [1.15, 0.34, 1.25, 1.0, 1.13, 0.92], [0.4, 0.36, 1.27, 1.0, 1.16, 0.93], [-0.6, 0.36, 1.28, 1.0, 1.17, 0.93], [-0.7, 0.38, 1.32, 1.0, 1.2, 0.97],
+      [-2.85, 0.42, 1.32, 1.0, 1.2, 0.97], [-2.95, 0.50, 1.28, 0.98, 1.18, 0.95]],
+    glass: [[1.15, 1.25, 1.26, 0.90, 0.82], [0.9, 1.255, 1.50, 0.905, 0.80], [0.6, 1.26, 1.80, 0.91, 0.78], [0.45, 1.265, 1.92, 0.91, 0.77],
+      [-0.4, 1.275, 1.94, 0.91, 0.77], [-0.55, 1.28, 1.92, 0.91, 0.77], [-0.65, 1.28, 1.30, 0.90, 0.76]],
+    lamps: { front: 2.9, rear: -2.93, x: 0.74, y: 1.0, yRear: 1.15 },
+  },
+};
+export const CIV_COLORS = [0xf2f2f0, 0xbfc3c7, 0x8a8e93, 0x2b2d30, 0x0b0c0e, 0x7a1418, 0x23406e, 0x2f4a36, 0xb9a98a, 0x5a3a26];
+
+export function buildCivilian(kind = 'sedan', color = 0xbfc3c7, opts = {}) {
+  const env = opts.envMap ?? envTex;
+  const spec = { ...CIV[kind] };
+  const M = materials(color, env, 0x9a9da2, 0x55585c);
+  spec.details = (H) => civDetails(H, spec, kind);
+  const car = assemble(spec, M, { interior: false });
+  car.userData.lampSpec = spec.lamps;
+  return car;
+}
+
+function civDetails(H, spec, kind) {
+  const { add, M, box, strip, both, plate, M4, range } = H;
+  const top = (z) => H.keyed(z)[1], wid = (z) => H.keyed(z)[2], sh = (z) => H.keyed(z)[3];
+  const zf = spec.body[0][0], zr = spec.body[spec.body.length - 1][0];
+  // grille, headlights, tail lights, bumpers, mirrors, handles
+  const gw = kind === 'pickup' ? 0.62 : 0.46, gh = kind === 'pickup' ? 0.3 : 0.14;
+  add(plate([[-gw, 0], [gw, 0], [gw, gh], [-gw, gh]], 0.04, M4(0, top(zf) - gh - 0.08, zf - 0.02)), M.honeycomb, H.shell, false);
+  add(box(1.5, 0.12, 0.08, 0, 0.34 + (kind === 'pickup' ? 0.1 : 0), zf - 0.02), kind === 'pickup' ? M.chrome : M.gloss, H.shell, false);
+  add(strip(range(zf - 0.01, zf - 0.32, 0.015), (z) => { const w = wid(z) * 1.006; return [[w, top(z) - 0.13, z], [Math.min(w, 0.84) * 0.97, top(z) - 0.02, z]]; }), M.reflector, H.shell, false);
+  add(strip(range(zr + 0.32, zr + 0.01, 0.015), (z) => { const w = wid(z) * 1.008; return [[w, sh(z) - 0.12, z], [w * 0.98, top(z) - 0.03, z]]; }), M.tail, H.shell, false);
+  add(box(1.5, 0.12, 0.08, 0, 0.36 + (kind === 'pickup' ? 0.12 : 0), zr + 0.01), kind === 'pickup' ? M.chrome : M.gloss, H.shell, false);
+  const [, yb] = H.glass(spec.cowl - 0.1);
+  for (const s of [1, -1]) {
+    add(box(0.2, 0.13, 0.07, s * (wid(spec.cowl - 0.1) + 0.09), yb + 0.08, spec.cowl - 0.12), M.gloss, H.shell, true);
+    add(box(0.018, 0.026, 0.13, s * (wid(spec.cowl - 0.6) + 0.004), sh(spec.cowl - 0.6) - 0.06, spec.cowl - 0.6), M.gloss, H.shell, false);
+  }
+  if (kind === 'suv') for (const s of [1, -1]) add(box(0.04, 0.04, 1.6, s * 0.58, H.glass(-1.0)[1] + 0.05, -1.0), M.gloss, H.shell, false);   // roof rails
+  if (kind === 'pickup') add(box(1.9, 0.02, 2.1, 0, top(-1.7) + 0.012, -1.75), M.black, H.shell, false);                                        // tonneau cover
+}

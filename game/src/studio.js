@@ -1,6 +1,6 @@
 // Dev-only page to inspect the procedural cars: /studio.html?car=sti&view=photo
 import * as THREE from 'three';
-import { buildSTI, buildBRZ, carEnvironment } from './carBuilder.js';
+import { buildSTI, buildBRZ, buildCivilian, carEnvironment } from './carBuilder.js';
 
 const q = new URLSearchParams(location.search);
 const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -16,7 +16,10 @@ scene.add(sun);
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshStandardMaterial({ color: 0x55585c, roughness: 0.9 }));
 ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
 for (const z of [-0.12, 0.12]) { const l = new THREE.Mesh(new THREE.PlaneGeometry(40, 0.1), new THREE.MeshBasicMaterial({ color: 0xd9a821 })); l.rotation.x = -Math.PI / 2; l.position.set(0, 0.002, -2.6 + z); l.rotation.z = 0.0; scene.add(l); }
-const car = q.get('car') === 'brz' ? buildBRZ(Number(q.get('color') || 0x1d4fb5), { envMap: env, interior: true }) : buildSTI(Number(q.get('color') || 0x07080a), { envMap: env });
+const kind = q.get('car') || 'sti';
+const car = kind === 'brz' ? buildBRZ(Number(q.get('color') || 0x1d4fb5), { envMap: env, interior: true })
+  : ['sedan', 'suv', 'pickup'].includes(kind) ? buildCivilian(kind, Number(q.get('color') || 0xbfc3c7), { envMap: env })
+  : buildSTI(Number(q.get('color') || 0x07080a), { envMap: env });
 scene.add(car);
 car.traverse(o => { if (o.isMesh) o.castShadow = true; });
 const cam = new THREE.PerspectiveCamera(Number(q.get('fov') || 32), innerWidth / innerHeight, 0.03, 200);

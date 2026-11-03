@@ -62,6 +62,8 @@ def main():
     # ---- per-pixel pavement evidence from imagery, in [-1, 1]; 0 = no information (in row blocks)
     H, W = naip.height, naip.width
     img = np.zeros((H, W), np.float32)
+    centre = np.zeros((H, W), np.float32)
+    PAD = 12
     for r0 in range(0, H, 1024):
         win = rasterio.windows.Window(0, r0, W, min(1024, H - r0))
         R, G, B, N = [x.astype(np.float32) for x in naip.read((1, 2, 3, 4), window=win)]
@@ -74,6 +76,21 @@ def main():
         blk = pave - veg
         blk[chm > 2.5] = 0.0                  # canopy hides the road
         img[r0:r0 + blk.shape[0]] = blk
+        # visible asphalt (not bright gravel/concrete, not deep shadow): its distance-to-edge ridge is
+        # the pavement centre. Under trees there's no evidence either way (flat forest floor isn't road).
+        a0, a1 = max(0, r0 - PAD), min(H, r0 + 1024 + PAD)
+        wv = rasterio.windows.Window(0, a0, W, a1 - a0)
+        R2, G2, B2, N2 = [x.astype(np.float32) for x in naip.read((1, 2, 3, 4), window=wv)]
+        ch2 = np.nan_to_num(chm_ds.read(1, window=wv))
+        nd2 = (N2 - R2) / np.maximum(N2 + R2, 1)
+        cr2 = np.max([R2, G2, B2], axis=0) - np.min([R2, G2, B2], axis=0)
+        br2 = (R2 + G2 + B2) / 3
+        asphalt = (nd2 < 0.14) & (cr2 < 30) & (br2 > 38) & (br2 < 150)
+        road = ndimage.binary_closing(ndimage.binary_opening(asphalt & (ch2 <= 2.5), iterations=1), iterations=2)
+        dtb = np.minimum(ndimage.distance_transform_edt(road), 3.6).astype(np.float32)
+        dtb[ch2 > 2.5] = np.nan                       # unknown under canopy
+        centre[r0:r0 + blk.shape[0]] = dtb[r0 - a0:r0 - a0 + blk.shape[0]]
+        del R2, G2, B2, N2, ch2, nd2, cr2, br2, asphalt, road, dtb
     img = ndimage.uniform_filter(img, 3)
 
     p0 = osm_line()
@@ -91,12 +108,15 @@ def main():
     Y = p[:, 1:2] + n[:, 1:2] * prof_off[None, :]
     P_img = sample(img, X.ravel(), Y.ravel()).reshape(X.shape)
     P_dem = sample(dem, X.ravel(), Y.ravel()).reshape(X.shape)
+    P_ctr = sample(np.nan_to_num(centre, nan=-1.0), X.ravel(), Y.ravel()).reshape(X.shape)
+    P_known = (P_ctr >= 0).astype(np.float32)
+    P_ctr = ndimage.uniform_filter1d(np.maximum(P_ctr, 0), 3, axis=0)
     # average along the road (+-4 m) to beat noise
     P_img = ndimage.uniform_filter1d(P_img, 5, axis=0)
 
     half = ROAD_W / 2
     k_in = int(half / 0.5)
-    IMG = np.zeros((M, len(OFFS))); FLAT = np.zeros((M, len(OFFS)))
+    IMG = np.zeros((M, len(OFFS))); FLAT = np.zeros((M, len(OFFS))); BENCH = np.zeros((M, len(OFFS)))
     for j, d in enumerate(OFFS):
         c = int(round((d + 20) / 0.5))
         inside = P_img[:, c - k_in:c + k_in + 1].mean(axis=1)
@@ -110,15 +130,28 @@ def main():
         slope = (zc * xo).sum(axis=1) / (xo ** 2).sum()
         resid = np.sqrt(((zc - slope[:, None] * xo) ** 2).mean(axis=1))
         FLAT[:, j] = np.exp(-np.abs(slope) / 0.05) * np.exp(-resid / 0.08)
+        # bench: the ground just outside each edge leaves the road plane (ditch, cut or fill).
+        # A flat field has no edges, so it scores low here even though it is flat.
+        kl, kr = c - k_in - 5, c + k_in + 5
+        ext = lambda u: z.mean(axis=1) + slope * u
+        eL = np.abs(P_dem[:, kl - 2:kl + 1].mean(axis=1) - ext(-half - 1.5))
+        eR = np.abs(P_dem[:, kr:kr + 3].mean(axis=1) - ext(half + 1.5))
+        BENCH[:, j] = np.exp(-resid / 0.06) * np.tanh((eL + eR) / 0.25)
     FLAT = ndimage.uniform_filter1d(FLAT, 3, axis=0)
     # flatness only tells us something where the ground around the road isn't flat as well
     rough = P_dem.std(axis=1)
     dem_weight = np.clip((rough - 0.3) / 1.5, 0, 1)
-    score = IMG + 0.8 * dem_weight[:, None] * (FLAT - FLAT.mean(axis=1, keepdims=True))
+    CTR = np.stack([P_ctr[:, int(round((d + 20) / 0.5))] for d in OFFS], axis=1) / 3.6
+    KNOWN = np.stack([P_known[:, int(round((d + 20) / 0.5))] for d in OFFS], axis=1)
+    # centre ridge only counts where the asphalt is visible; relative to the station's mean so it's a contrast
+    CTRc = (CTR - (CTR * KNOWN).sum(axis=1, keepdims=True) / np.maximum(KNOWN.sum(axis=1, keepdims=True), 1)) * KNOWN
+    BENCH = ndimage.uniform_filter1d(BENCH, 5, axis=0)
+    score = (0.6 * IMG + 0.6 * dem_weight[:, None] * (FLAT - FLAT.mean(axis=1, keepdims=True)) + 0.9 * CTRc
+             + 1.9 * (BENCH - BENCH.mean(axis=1, keepdims=True)))
 
     # ---- Viterbi: smooth offset path through the score field
-    lam1 = 0.04       # cost per (m)^2 of offset change between 2 m stations
-    prior = 0.0015    # weak pull toward OSM
+    lam1 = 0.03       # cost per (m)^2 of offset change between 2 m stations
+    prior = 0.004     # pull toward OSM when the evidence is weak
     K = len(OFFS)
     dd = (OFFS[:, None] - OFFS[None, :]) ** 2
     cost = -score[0] + prior * OFFS ** 2
@@ -130,9 +163,7 @@ def main():
     path = np.zeros(M, dtype=int); path[-1] = int(np.argmin(cost))
     for i in range(M - 1, 0, -1): path[i - 1] = back[i, path[i]]
     off = OFFS[path]
-    # pin the ends to the requested start/finish points
-    off[:10] *= np.linspace(0, 1, 10); off[-10:] *= np.linspace(1, 0, 10)
-    off_s = ndimage.gaussian_filter1d(off, 3.0, mode="nearest")
+    off_s = ndimage.gaussian_filter1d(off, 2.0, mode="nearest")
     q = p + n * off_s[:, None]
     q = ndimage.gaussian_filter1d(q, 1.0, axis=0, mode="nearest")
     print(f"stations {M}, mean |offset| {np.abs(off_s).mean():.2f} m, p95 {np.percentile(np.abs(off_s), 95):.2f} m, max {np.abs(off_s).max():.2f} m")

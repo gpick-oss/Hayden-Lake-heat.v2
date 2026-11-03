@@ -24,7 +24,10 @@ const ab = (f) => { const b = fs.readFileSync(f); return b.buffer.slice(b.byteOf
 
 // ------------------------------------------------------------------ world
 const meta = JSON.parse(fs.readFileSync(path.join(WORLD, 'meta.json')));
+const REVERSE = process.argv.includes('--reverse');
+const SUFFIX = REVERSE ? '_rev' : '';
 const route = JSON.parse(fs.readFileSync(path.join(WORLD, 'route.json')));
+if (REVERSE) route.pts = route.pts.slice().reverse();   // finish -> start
 const terrain = new Terrain(ab(path.join(WORLD, 'terrain.bin')), meta.lake);
 const track = new Track(route);
 const forest = new Forest(ab(path.join(WORLD, 'trees.bin')), terrain);
@@ -197,7 +200,7 @@ console.log('envelope (g):');
 for (let k = 0; k < E.bins.length; k += 3) console.log(`  ${(E.bins[k] * 2.237).toFixed(0).padStart(4)} mph  lat ${(E.lat[k] / G).toFixed(2)}  brake ${(E.brake[k] / G).toFixed(2)}  accel ${(E.acc[k] / G).toFixed(2)}`);
 console.log(`  understeer gradient ${E.kUs.toFixed(4)} rad/(m/s^2)`);
 
-const cands = JSON.parse(fs.readFileSync(path.join(DATA, 'racing_line_candidates.json')));
+const cands = JSON.parse(fs.readFileSync(path.join(DATA, `racing_line_candidates${SUFFIX}.json`)));
 const centre = lineFrom(new Float64Array(route.pts.length));
 console.log(`centreline: QSS ${qss(centre, E).t.toFixed(1)} s`);
 let best = null;
@@ -250,5 +253,5 @@ const out = {
   meta: { w_len: best.w_len, qssTime: +prof.t.toFixed(2), simTime: +res.time.toFixed(2), clean: !res.inc.length, kUs: E.kUs,
     envelope: { bins: E.bins, lat: E.lat.map(v => +v.toFixed(3)), brake: E.brake.map(v => +v.toFixed(3)), acc: E.acc.map(v => +v.toFixed(3)) } },
 };
-fs.writeFileSync(path.join(WORLD, 'racing_line.json'), JSON.stringify(out));
-console.log(`wrote racing_line.json in ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+fs.writeFileSync(path.join(WORLD, `racing_line${SUFFIX}.json`), JSON.stringify(out));
+console.log(`wrote racing_line${SUFFIX}.json in ${((Date.now() - t0) / 1000).toFixed(0)} s`);

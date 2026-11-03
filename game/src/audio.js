@@ -23,6 +23,7 @@ export class Engine {
     this.ready = true;
   }
   toggle() { this.on = !this.on; if (this.master) this.master.gain.value = this.on ? 0.55 : 0; }
+  pause(paused) { if (this.master) this.master.gain.value = paused || !this.on ? 0 : 0.55; }
   event(type, strength = 1) { if (this.ready) this.node.port.postMessage({ type, strength }); }
   update(car, interior) {
     if (!this.ready) return;

@@ -269,6 +269,8 @@ const WALLS = [[0.82, 0.78, 0.7], [0.62, 0.52, 0.42], [0.88, 0.88, 0.85], [0.55,
 
 export function buildBuildings(list) {
   const pos = [], col = [];
+  // windows: dark glass by day; at night about half of them are lit (landmarks in the dark)
+  const wpos = [], wday = [], wnight = [];
   const tri = (a, b, c, color) => { pos.push(...a, ...b, ...c); for (let k = 0; k < 3; k++) col.push(...color); };
   const colliders = [];
   let seed = 1;
@@ -282,8 +284,28 @@ export function buildBuildings(list) {
     const y0 = b.b - 0.5, wallH = b.gable ? Math.max(2.6, b.h * 0.62) : b.h, y1 = b.b + wallH;
     const wall = WALLS[Math.floor(rnd() * WALLS.length)];
     const roof = b.roof.map(v => Math.min(1, (v / 255) * 1.15));
+    let pcx = 0, pcz = 0, parea = 0;
+    for (let k = 0; k < p.length; k++) { pcx += p[k][0]; pcz += p[k][1]; const a = p[k], c = p[(k + 1) % p.length]; parea += a[0] * c[1] - c[0] * a[1]; }
+    pcx /= p.length; pcz /= p.length; parea = Math.abs(parea) / 2;
+    const house = parea > 35 && b.h > 2.4;
     for (let k = 0; k < p.length; k++) {
       const a = p[k], c = p[(k + 1) % p.length];
+      const len = Math.hypot(c[0] - a[0], c[1] - a[1]);
+      if (house && len > 2.8) {
+        const ux = (c[0] - a[0]) / len, uz = (c[1] - a[1]) / len;
+        let nx = -uz, nz = ux;
+        if ((((a[0] + c[0]) / 2 - pcx) * nx + ((a[1] + c[1]) / 2 - pcz) * nz) < 0) { nx = -nx; nz = -nz; }
+        const count = Math.max(1, Math.floor((len - 1.2) / 3.2));
+        const rows = wallH > 5.2 ? [0.9, 3.6] : [0.9];
+        for (const ry of rows) for (let i = 0; i < count; i++) {
+          const t = (i + 1) / (count + 1), mx = a[0] + (c[0] - a[0]) * t + nx * 0.05, mz = a[1] + (c[1] - a[1]) * t + nz * 0.05;
+          const yA = b.b + ry, yB = yA + 1.1, hw = 0.45;
+          const L = [mx - ux * hw, mz - uz * hw], Rr = [mx + ux * hw, mz + uz * hw];
+          wpos.push(L[0], yA, L[1], Rr[0], yA, Rr[1], Rr[0], yB, Rr[1], L[0], yA, L[1], Rr[0], yB, Rr[1], L[0], yB, L[1]);
+          const lit = rnd() < 0.45, br = 0.75 + rnd() * 0.25;
+          for (let v = 0; v < 6; v++) { wday.push(0.09, 0.11, 0.14); lit ? wnight.push(1.0 * br, 0.78 * br, 0.45 * br) : wnight.push(0.025, 0.025, 0.03); }
+        }
+      }
       const shade = 0.85 + 0.15 * Math.abs(Math.sin(Math.atan2(c[1] - a[1], c[0] - a[0])));
       const w = wall.map(v => v * shade);
       tri([a[0], y0, a[1]], [c[0], y0, c[1]], [c[0], y1, c[1]], w);
@@ -316,7 +338,13 @@ export function buildBuildings(list) {
   g.computeVertexNormals();
   const mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
   mesh.castShadow = true; mesh.receiveShadow = true;
-  return { mesh, colliders };
+  const wg = new THREE.BufferGeometry();
+  wg.setAttribute('position', new THREE.Float32BufferAttribute(wpos, 3));
+  const wcol = new THREE.Float32BufferAttribute(wday.slice(), 3); wg.setAttribute('color', wcol);
+  const wmesh = new THREE.Mesh(wg, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+  mesh.add(wmesh);
+  const setNight = (on) => { wcol.array.set(on ? wnight : wday); wcol.needsUpdate = true; };
+  return { mesh, colliders, windows: { mesh: wmesh, setNight, count: wpos.length / 18 } };
 }
 
 // ---------------------------------------------------------------------------

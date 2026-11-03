@@ -18,9 +18,43 @@ Everything in the world is built from real data:
 
     ./run.sh            # opens http://localhost:5199
 
-Controls: W/↑ gas, S/↓ brake (hold at a stop to reverse), A/D steer, Space handbrake,
-E/Q shift up/down, T auto/manual, L racing line, K car collisions on/off, P demo lap, C camera (chase, far, cockpit, hood), R reset to road (+2 s),
-M mute, O quality. Gamepads work (RT/LT, left stick, RB/LB shift, A handbrake, B camera, Y reset).
+**Esc opens the options menu** (pad: Start). Everything is in there:
+
+| Option | What it does |
+|---|---|
+| Mode | **FAST**: day, ghost cars, no traffic. **IRL**: night, car contact on, random traffic, fast AI, deer. Changing any of those makes it Custom. |
+| Session | Full stage, or **section practice** between any two checkpoints (rolling start, its own best time and ghost) |
+| Direction | Start → Finish, or Finish → Start (its own racing line, pace notes and bests) |
+| Time of day | Day / night (headlights, H for high beams; signs glow in your lights; house windows lit) |
+| AI rivals | Off / Easy (leader 21:30) / Fast (leader 19:00) / Pro (16:30) / Alien (14:48) |
+| Car collisions | On, or ghost cars |
+| Random traffic | Off / light / normal / heavy, both lanes |
+| Deer crossings | Each run rolls round(Normal(3, 1.5)) deer, half slow walkers, half fast runners |
+| Racing line | Off / full / braking zones only |
+| Pace notes | Off / on screen / on screen + co-driver voice |
+| Cockpit field of view, gearbox, graphics quality | |
+
+Keys: W/↑ gas, S/↓ brake (hold at a stop to reverse), A/D steer, Space handbrake, E/Q shift, T auto/manual,
+C camera, L racing line, K collisions, N night, H high beams, P demo lap, R reset to road (+2 s),
+Backspace restart, M mute.
+
+## Pace notes
+
+`pacenotes/hayden-lake-pace-notes-forward.pdf` and `-reverse.pdf` are printable pace notes (13 pages each),
+generated from the lidar-matched road and the verified racing line: direction + grade 1 (slowest) to 6
+(flat), HP hairpin, SQ square, K kink, long / v.long, < tightens, > opens, ! / !! caution, crests, dips and
+bumps, and the distance to the next call (+ = "into"). Each line has the symbol, the shorthand and the
+spoken call. Grouped by checkpoint so you can learn the stage a section at a time. In game the same notes
+show on screen (and can be read out) — Pace notes in the menu.
+
+## Landmarks
+
+From real data: 32 street-name signs at the real junctions (Overture), 10 gates and 2 stop signs (OSM),
+39 mailboxes at the real driveways, the 35 mph limit (OSM), and 4.3 km of guard rail wherever the lidar
+shows a high, steep drop or the lake right below the road. Placed by standard road-design rules (not
+surveyed): curve / turn / hairpin / reverse-turn signs with advisory speeds, "NEXT X MILES" winding-road
+signs, chevrons on the hairpins, mile posts, and a pole line with wires through the stretches with houses.
+Rails, poles and gate posts are solid.
 
 ## The car
 
@@ -48,12 +82,14 @@ You race three AI drivers; your best run is saved as a ghost.
     .venv/bin/python tools/fetch.py        # downloads raw data into data/ (~1 GB)
     .venv/bin/python tools/refine_road.py  # snaps the OSM centreline onto the real pavement (aerial photo + lidar)
     .venv/bin/python tools/build.py        # writes game/public/world/
-    .venv/bin/python tools/racing_line.py  # minimum-curvature racing line candidates
-    (cd game && node tools/racingline.mjs) # lap-sims them with the car, verifies by driving, writes racing_line.json
+    .venv/bin/python tools/landmarks.py    # signs, rails, gates, mailboxes, poles -> landmarks.json
+    .venv/bin/python tools/racing_line.py [--reverse]   # minimum-curvature racing line candidates
+    (cd game && node tools/racingline.mjs [--reverse])  # lap-sims them with the car, verifies by driving
+    (cd game && node tools/pacenotes.mjs)               # printable pace notes (HTML + PDF)
 
 ## Racing line
 
-Press L to cycle off / full line / braking zones only. The line is a minimum-curvature path inside the
+Press L to cycle off / full line / braking zones only (each direction has its own line). The line is a minimum-curvature path inside the
 pavement (0.4 m clear of the edge). Its target speeds come from a lap simulation using the STI's own
 measured grip, braking and power (including turbo lag, slopes, and crests that unload the tyres), and
 were verified by driving the whole stage with the physics car. Chevrons are green where you can be on

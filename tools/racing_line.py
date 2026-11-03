@@ -16,6 +16,7 @@ Output: data/racing_line_candidates.json (offsets resampled onto the 2 m route s
 data/racing_line_debug.png (a few corners drawn over the aerial photo).
 """
 import json
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -33,9 +34,15 @@ GRID_OFF = -1.6     # start in the right-hand lane (negative = right of travel)
 W_LENS = [0.0, 0.0005, 0.002, 0.008]
 
 
+REVERSE = "--reverse" in sys.argv
+SUFFIX = "_rev" if REVERSE else ""
+
+
 def load_route():
     r = json.load(open(WORLD / "route.json"))
     P = np.array(r["pts"], dtype=float)
+    if REVERSE:
+        P = P[::-1].copy()      # drive it finish -> start
     xz = P[:, [0, 2]]
     s = np.r_[0, np.cumsum(np.linalg.norm(np.diff(xz, axis=0), axis=1))]
     return r["w"], xz, P[:, 1], s
@@ -148,8 +155,9 @@ def main():
               f"length {np.sum(np.linalg.norm(np.diff(p, axis=0), axis=1)):.1f} m  at edge {at_edge:.0%}")
         alpha_route = np.interp(s, sg, a)
         out["candidates"].append({"w_len": wl, "alpha": alpha_route.round(4).tolist()})
-    json.dump(out, open(DATA / "racing_line_candidates.json", "w"))
-    debug_plot(w, xz, s, out)
+    json.dump(out, open(DATA / f"racing_line_candidates{SUFFIX}.json", "w"))
+    if not REVERSE:
+        debug_plot(w, xz, s, out)
 
 
 def debug_plot(w, xz, s, out):
