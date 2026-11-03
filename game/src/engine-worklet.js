@@ -3,8 +3,8 @@
 // The rumble: firing order 1-3-2-4 is evenly spaced (180 deg), but the unequal-length headers make
 // the exhaust pulses reach the collector in uneven pairs, so the exhaust has a strong half-order
 // "burble". Those pulses then ring a ~2.7 m open pipe (no muffler) and get clipped by the pressure
-// wave into the raspy straight-pipe tone. Turbo whistle, compressor surge flutter on lift-off, and
-// overrun pops (tuned) sit on top.
+// wave into the raspy straight-pipe tone. Turbo whistle, an atmospheric blow-off valve on lift-off,
+// and overrun pops (tuned) sit on top.
 
 const TAU = Math.PI * 2;
 
@@ -17,6 +17,10 @@ class Biquad {
   lowpass(f, q) {
     const w = TAU * f / sampleRate, al = Math.sin(w) / (2 * q), c = Math.cos(w), a0 = 1 + al;
     this.b0 = (1 - c) / 2 / a0; this.b1 = (1 - c) / a0; this.b2 = this.b0; this.a1 = -2 * c / a0; this.a2 = (1 - al) / a0;
+  }
+  highpass(f, q) {
+    const w = TAU * f / sampleRate, al = Math.sin(w) / (2 * q), c = Math.cos(w), a0 = 1 + al;
+    this.b0 = (1 + c) / 2 / a0; this.b1 = -(1 + c) / a0; this.b2 = this.b0; this.a1 = -2 * c / a0; this.a2 = (1 - al) / a0;
   }
   step(x) {
     const y = this.b0 * x + this.b1 * this.x1 + this.b2 * this.x2 - this.a1 * this.y1 - this.a2 * this.y2;
@@ -48,15 +52,21 @@ class Boxer extends AudioWorkletProcessor {
     this.boom = new Biquad(); this.boom.bandpass(88, 1.4);
     this.mid = new Biquad(); this.mid.bandpass(420, 1.1);
     this.induct = new Biquad(); this.induct.bandpass(650, 2.0);
-    this.flutF = new Biquad(); this.flutF.bandpass(700, 1.5);
+    // blow-off valve: piston crack ("chu") + vented charge air hiss ("pssshh") whose pitch falls with pressure
+    this.bovCrack = new Biquad(); this.bovCrack.bandpass(1100, 1.8);
+    this.bovHp = new Biquad(); this.bovHp.highpass(1800, 0.7);
+    this.bovRes = new Biquad(); this.bovRes.bandpass(5000, 1.6);
+    this.bovRes2 = new Biquad(); this.bovRes2.bandpass(2600, 2.4);
+    this.bov = 0; this.bovT = 9; this.bovTau = 0.3;
     this.spoolF = new Biquad(); this.spoolF.bandpass(3200, 2.2);
     this.popF = new Biquad(); this.popF.lowpass(3200, 0.8);
-    this.wPhase = 0; this.fl = 0; this.flPhase = 0; this.flRate = 22;
+    this.wPhase = 0;
     this.popEnv = 0; this.thump = 0; this.thumpPh = 0; this.overrun = 0; this.lastLoad = 0;
     this.seed = 22222;
     this.port.onmessage = (e) => {
       const m = e.data;
-      if (m.type === 'bov') { this.fl = Math.min(1, 0.35 + m.strength); this.flRate = 24; }
+      // more boost in the pipes = louder and longer vent
+      if (m.type === 'bov') { const k = Math.min(1, m.strength); this.bov = 0.45 + 0.75 * k; this.bovT = 0; this.bovTau = 0.16 + 0.34 * k; }
       if (m.type === 'bang') this.pop(1.6);
     };
   }
@@ -81,6 +91,9 @@ class Boxer extends AudioWorkletProcessor {
     const blockT = out.length / sr;
     this.overrun = Math.max(0, this.overrun - blockT * (load > 0.1 ? 8 : 0.9));
     this.mid.bandpass(260 + rpm * 0.06, 1.2);
+    // vent pitch sweeps down as the charge pressure bleeds off
+    const bovOn = this.bovT < this.bovTau * 7;
+    if (bovOn) { const pr = Math.exp(-this.bovT / this.bovTau); this.bovRes.bandpass(2800 + 3600 * pr, 1.6); this.bovRes2.bandpass(1700 + 1300 * pr, 2.4); }
 
     for (let n = 0; n < out.length; n++) {
       // --- crank & firing events
@@ -145,12 +158,14 @@ class Boxer extends AudioWorkletProcessor {
       let turbo = (Math.sin(this.wPhase) + 0.35 * Math.sin(this.w2Phase)) * 0.3 * boost * (0.4 + 0.6 * load) * wob;
       // spool: rushing air through the compressor, louder as boost builds
       turbo += this.spoolF.step(this.rnd()) * 0.5 * boost * (0.3 + 0.7 * load);
-      // compressor surge "stu-tu-tu" after lifting at boost
-      if (this.fl > 0.001) {
-        this.flPhase += TAU * this.flRate / sr; this.flRate = Math.max(9, this.flRate - 9 / sr);
-        const gate = Math.max(0, Math.sin(this.flPhase)) ** 3;
-        turbo += this.flutF.step(this.rnd()) * this.fl * gate * 2.4;
-        this.fl *= 0.99987;
+      // blow-off valve: throttle snaps shut at boost, the piston cracks open and dumps the charge to air
+      if (bovOn) {
+        const t = this.bovT, z = this.rnd();
+        const crack = Math.exp(-t / 0.018) * (1 - Math.exp(-t / 0.0015));
+        const hiss = (1 - Math.exp(-t / 0.006)) * Math.exp(-t / this.bovTau) * (1 + 0.15 * this.rnd());
+        const air = this.bovHp.step(z);
+        turbo += this.bov * (this.bovCrack.step(z) * crack * 3.2 + (air * 0.55 + this.bovRes.step(air) * 2.2 + this.bovRes2.step(air) * 1.1) * hiss);
+        this.bovT += 1 / sr;
       }
       const mix = this.int2 + turbo * (1 - 0.2 * interior);
       // DC block + soft limiter

@@ -179,7 +179,7 @@ export class Car {
     const spool = smooth(1700, 3300, rpm);
     const bTarget = ctl.throttle * spool;
     this.boost += (bTarget - this.boost) * Math.min(1, dt / (bTarget > this.boost ? 0.42 + Math.max(0, 3200 - rpm) / 3000 : 0.12));
-    if (this.boost > 0.45 && ctl.throttle < 0.2 && !this.liftArmed) { this.events.push('bov'); this.liftArmed = true; }
+    if (this.boost > 0.3 && ctl.throttle < 0.2 && !this.liftArmed) { this.events.push('bov'); this.liftArmed = true; }
     if (ctl.throttle > 0.5) this.liftArmed = false;
     if (rpm > S.limiter) this.cut = true; else if (rpm < S.limiter - 180) this.cut = false;
     const full = table(S.naTq, rpm) + this.boost * (table(S.boostTq, rpm) - table(S.naTq, rpm));
