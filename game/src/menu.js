@@ -92,6 +92,7 @@ export class Menu {
       html += `<div class="menu-foot">Best for this section: <b>${b == null ? 'none yet' : b}</b></div>`;
     }
     html += '<div class="menu-foot">↑↓ choose · ←→ change · Enter select · Esc close</div>';
+    html += '<div class="menu-foot credits">Map data © OpenStreetMap contributors (ODbL) · Overture Maps Foundation · Meta &amp; WRI canopy heights (CC BY 4.0) · USGS 3DEP lidar and NAIP imagery</div>';
     this.root.innerHTML = html;
     this.root.querySelector('.menu-row.sel')?.scrollIntoView({ block: 'nearest' });
   }

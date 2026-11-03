@@ -19,6 +19,10 @@ import { Deer } from './deer.js';
 import { Lighting, addCarLamps } from './lighting.js';
 import { generateNotes, CoDriver } from './paceNotes.js';
 import { buildLandmarks } from './landmarks.js';
+import { inject } from '@vercel/analytics';
+
+// Vercel Web Analytics: page views on the deployed site only (nothing loads when playing locally)
+if (import.meta.env.PROD && !/^(localhost|127\.|\[::1\])/.test(location.hostname)) inject({ mode: 'production' });
 
 const $ = (id) => document.getElementById(id);
 const status = (t) => { $('loading-msg').textContent = t; };
