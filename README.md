@@ -104,3 +104,15 @@ model in: download the glTF from Sketchfab and unzip it to `game/public/models/s
 `game/public/models/brz/`; the game scales it, finds the wheels and repaints it automatically.
 
 Change the route by editing `data/route_osrm.json` (OSRM output) and the bounds in `tools/fetch.py`.
+
+## Data sources and licenses
+
+The code is MIT licensed (see LICENSE). The map data in `game/public/world/` and `data/` is derived from:
+
+- Elevation and lidar: USGS 3DEP (public domain)
+- Aerial imagery: USDA/USGS NAIP (public domain)
+- Tree canopy heights: Meta & World Resources Institute, High Resolution Canopy Height Maps (CC BY 4.0)
+- Roads, gates, stop signs, speed limits: © OpenStreetMap contributors (ODbL)
+- Building footprints, road names, water and land use: Overture Maps Foundation (CDLA Permissive 2.0 / ODbL for OSM-derived parts)
+
+`data/` keeps only the small inputs; `tools/fetch.py` re-downloads the large GeoTIFFs (DEM, NAIP, canopy).

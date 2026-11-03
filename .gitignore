@@ -1,6 +1,12 @@
 .venv/
-data/
 game/node_modules/
 game/dist/
-game/public/world/
 __pycache__/
+# raw downloads are re-fetched by tools/fetch.py (the GeoTIFFs are over GitHub's 100 MB file limit);
+# the small map-data inputs are kept so the pipeline runs without the flaky Overpass/Overture calls
+data/*
+!data/route_osrm.json
+!data/route_refined.json
+!data/osm_details.json
+!data/buildings.geojson
+!data/ov_*.geojson
