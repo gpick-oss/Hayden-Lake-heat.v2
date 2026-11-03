@@ -107,7 +107,17 @@ export function fitCar(proto, spec) {
   if (!paints.length && area.size) paints = [[...area.entries()].sort((a, b) => b[1] - a[1])[0][0]];
   for (const p of paints) {
     p.color?.set(spec.color); if (p.map && spec.recolorTexture !== false) p.map = null;
-    if ('metalness' in p) { p.metalness = 0.4; p.roughness = 0.25; }
+    if ('metalness' in p) { p.metalness = 0.45; p.roughness = 0.28; }
+    if ('clearcoat' in p) { p.clearcoat = 1; p.clearcoatRoughness = 0.03; }
+  }
+  // wheels: darken the rims and paint the brake calipers, if the model names them
+  const wheelMats = new Set();
+  for (const w of wheels) w.spin.traverse(o => { if (o.isMesh) for (const m of [o.material].flat()) wheelMats.add(m); });
+  for (const w of wheels) w.pivot.traverse(o => { if (o.isMesh) for (const m of [o.material].flat()) if (/calip|brake/i.test(m.name + o.name)) m.userData.caliper = true; });
+  for (const m of wheelMats) {
+    if (m.userData.caliper || /calip|brake/i.test(m.name)) { if (spec.caliperColor != null) { m.color?.set(spec.caliperColor); m.map = null; } continue; }
+    if (/tire|tyre|rubber/i.test(m.name)) continue;
+    if (spec.rimColor != null && /rim|wheel|alloy|spoke/i.test(m.name)) { m.color?.set(spec.rimColor); m.map = null; }
   }
   const glass = [];
   for (const m of meshes) for (const mat of [m.material].flat()) {
@@ -118,8 +128,9 @@ export function fitCar(proto, spec) {
   // camera anchors (driver on the left, x > 0)
   const eye = new THREE.Object3D(); eye.position.set(0.37, spec.eyeY ?? 1.2, spec.eyeZ ?? -0.66); shell.add(eye);
   const hoodCam = new THREE.Object3D(); hoodCam.position.set(0, spec.hoodY ?? 1.0, spec.hoodZ ?? 1.12); shell.add(hoodCam);
+  const mirror = new THREE.Object3D(); mirror.position.set(0, spec.mirrorY ?? 1.35, spec.mirrorZ ?? -0.36); shell.add(mirror);
 
-  root.userData = { body, wheels, eye, hoodCam, gauges: null, steeringWheel: null, glass, wheelsFound: found,
+  root.userData = { body, wheels, eye, hoodCam, mirror, gauges: null, steeringWheel: null, glass, wheelsFound: found,
     materials: { glass: { set opacity(v) { for (const g of glass) g.opacity = Math.min(g.userData.baseOpacity, v); } } } };
   return root;
 }

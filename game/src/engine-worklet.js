@@ -49,7 +49,7 @@ class Boxer extends AudioWorkletProcessor {
     this.mid = new Biquad(); this.mid.bandpass(420, 1.1);
     this.induct = new Biquad(); this.induct.bandpass(650, 2.0);
     this.flutF = new Biquad(); this.flutF.bandpass(700, 1.5);
-    this.spoolF = new Biquad(); this.spoolF.bandpass(2600, 3);
+    this.spoolF = new Biquad(); this.spoolF.bandpass(3200, 2.2);
     this.popF = new Biquad(); this.popF.lowpass(3200, 0.8);
     this.wPhase = 0; this.fl = 0; this.flPhase = 0; this.flRate = 22;
     this.popEnv = 0; this.thump = 0; this.thumpPh = 0; this.overrun = 0; this.lastLoad = 0;
@@ -129,26 +129,32 @@ class Boxer extends AudioWorkletProcessor {
       this.hpOut = hpA * (this.hpOut + sat - this.hpPrev); this.hpPrev = sat;
       let o = sat * 0.75 + this.hpOut * (0.25 + 0.45 * load);
 
-      // --- induction + turbo
-      o += this.induct.step(this.rnd()) * (0.04 + 0.12 * load) * (0.6 + 0.4 * Math.min(1, exc * 2));
-      const wf = 1800 + 7200 * boost;
-      this.wPhase += TAU * wf / sr;
-      if (this.wPhase > TAU) this.wPhase -= TAU;
-      o += Math.sin(this.wPhase) * 0.035 * boost * (0.3 + 0.7 * load);
-      o += this.spoolF.step(this.rnd()) * 0.09 * boost * load;
-      // compressor surge "stu-tu-tu" after lifting at boost
-      if (this.fl > 0.001) {
-        this.flPhase += TAU * this.flRate / sr; this.flRate = Math.max(9, this.flRate - 9 / sr);
-        const gate = Math.max(0, Math.sin(this.flPhase)) ** 3;
-        o += this.flutF.step(this.rnd()) * this.fl * gate * 0.9;
-        this.fl *= 0.99987;
-      }
+      // --- induction
+      o += this.induct.step(this.rnd()) * (0.05 + 0.14 * load) * (0.6 + 0.4 * Math.min(1, exc * 2));
 
       // --- cabin: muffled, less hiss
       this.int1 = (1 - intA) * o + intA * this.int1;
       this.int2 = (1 - intA) * this.int1 + intA * this.int2;
+
+      // --- turbo (mixed after the cabin filter: it sits right behind the firewall, you hear it inside)
+      // whistle rises with shaft speed; a second partial and a slow wobble keep it from sounding like a test tone
+      const wf = 1700 + 7400 * boost;
+      this.wPhase += TAU * wf / sr; if (this.wPhase > TAU) this.wPhase -= TAU;
+      this.w2Phase = (this.w2Phase || 0) + TAU * wf * 1.51 / sr; if (this.w2Phase > TAU) this.w2Phase -= TAU;
+      const wob = 1 + 0.12 * Math.sin(this.wPhase * 0.0021);
+      let turbo = (Math.sin(this.wPhase) + 0.35 * Math.sin(this.w2Phase)) * 0.3 * boost * (0.4 + 0.6 * load) * wob;
+      // spool: rushing air through the compressor, louder as boost builds
+      turbo += this.spoolF.step(this.rnd()) * 0.5 * boost * (0.3 + 0.7 * load);
+      // compressor surge "stu-tu-tu" after lifting at boost
+      if (this.fl > 0.001) {
+        this.flPhase += TAU * this.flRate / sr; this.flRate = Math.max(9, this.flRate - 9 / sr);
+        const gate = Math.max(0, Math.sin(this.flPhase)) ** 3;
+        turbo += this.flutF.step(this.rnd()) * this.fl * gate * 2.4;
+        this.fl *= 0.99987;
+      }
+      const mix = this.int2 + turbo * (1 - 0.2 * interior);
       // DC block + soft limiter
-      this.dcOut = this.int2 - this.dc + 0.995 * this.dcOut; this.dc = this.int2;
+      this.dcOut = mix - this.dc + 0.995 * this.dcOut; this.dc = mix;
       out[n] = Math.tanh(this.dcOut * 0.9) * 0.8;
     }
     for (let c = 1; c < outputs[0].length; c++) outputs[0][c].set(out);

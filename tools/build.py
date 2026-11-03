@@ -45,16 +45,23 @@ def load():
 
 
 def route_line(dem, tf):
-    coords = json.load(open(DATA / "route_osrm.json"))["routes"][0]["geometry"]["coordinates"]
-    pts = np.array([to_utm(*c) for c in coords])
-    # drop consecutive duplicates, resample every 1 m, smooth out OSM vertex kinks
+    refined = DATA / "route_refined.json"
+    if refined.exists():
+        # centreline snapped to the real pavement by tools/refine_road.py (already smooth)
+        pts = np.array(json.load(open(refined))["pts"])
+        sigma = 1.0
+    else:
+        coords = json.load(open(DATA / "route_osrm.json"))["routes"][0]["geometry"]["coordinates"]
+        pts = np.array([to_utm(*c) for c in coords])
+        sigma = 4.0
+    # drop consecutive duplicates, resample every 1 m, smooth out vertex kinks
     keep = np.r_[True, np.linalg.norm(np.diff(pts, axis=0), axis=1) > 0.01]
     pts = pts[keep]
     seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
     s = np.r_[0, np.cumsum(seg)]
     ss = np.arange(0, s[-1], 1.0)
     p = np.c_[np.interp(ss, s, pts[:, 0]), np.interp(ss, s, pts[:, 1])]
-    p = ndimage.gaussian_filter1d(p, 4, axis=0, mode="nearest")
+    p = ndimage.gaussian_filter1d(p, sigma, axis=0, mode="nearest")
     # elevation from lidar bare earth, smoothed along the road
     inv = ~tf
     cols, rows = inv * (p[:, 0], p[:, 1])

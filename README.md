@@ -45,7 +45,26 @@ You race three AI drivers; your best run is saved as a ghost.
 ## Rebuild the world
 
     python3 -m venv .venv && .venv/bin/pip install rasterio numpy pyproj shapely requests duckdb pillow scipy
-    .venv/bin/python tools/fetch.py      # downloads raw data into data/ (~1 GB)
-    .venv/bin/python tools/build.py      # writes game/public/world/
+    .venv/bin/python tools/fetch.py        # downloads raw data into data/ (~1 GB)
+    .venv/bin/python tools/refine_road.py  # snaps the OSM centreline onto the real pavement (aerial photo + lidar)
+    .venv/bin/python tools/build.py        # writes game/public/world/
+    .venv/bin/python tools/racing_line.py  # minimum-curvature racing line candidates
+    (cd game && node tools/racingline.mjs) # lap-sims them with the car, verifies by driving, writes racing_line.json
+
+## Racing line
+
+Press L to cycle off / full line / braking zones only. The line is a minimum-curvature path inside the
+pavement (0.4 m clear of the edge). Its target speeds come from a lap simulation using the STI's own
+measured grip, braking and power (including turbo lag, slopes, and crests that unload the tyres), and
+were verified by driving the whole stage with the physics car. Chevrons are green where you can be on
+the power, turning yellow then red where your current speed is too fast for that spot, so the first
+red chevron is your braking point.
+
+## Cars
+
+The player car is a 2018+ WRX STI sedan in Crystal Black, rivals are blue BRZs. Both are procedural
+(`src/carBuilder.js`; inspect them at /studio.html?car=sti&view=photo). For exact looks, drop a real
+model in: download the glTF from Sketchfab and unzip it to `game/public/models/sti/` (scene.gltf) or
+`game/public/models/brz/`; the game scales it, finds the wheels and repaints it automatically.
 
 Change the route by editing `data/route_osrm.json` (OSRM output) and the bounds in `tools/fetch.py`.

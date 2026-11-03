@@ -3,9 +3,10 @@ import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { Terrain, Forest, buildRoads, buildBuildings, loadWorld } from './world.js';
 import { Track } from './track.js';
 import { Car } from './wrx.js';
-import { wrxModel, drawGauges } from './wrxModel.js';
+import { drawGauges } from './wrxModel.js';
+import { buildSTI, buildBRZ, carEnvironment } from './carBuilder.js';
 import { loadCarModel, fitCar } from './carModels.js';
-import { RacingLine } from './racingLine.js';
+import { RacingLine, LINE_MODES } from './racingLine.js';
 import { Input } from './input.js';
 import { Engine } from './audio.js';
 
@@ -66,9 +67,15 @@ const terrain = new Terrain(W.terrBuf, W.meta.lake);
 terrain.buildCoarse(W.farTex);
 scene.add(terrain.group);
 const track = new Track(W.route);
-const line = new RacingLine(track, terrain);
+// racing line (built offline from the car's own physics); fall back to the centreline if missing
+const line = (await RacingLine.load(track)) || new RacingLine({ n: track.p.length, x: track.p.map(p => p[0]), z: track.p.map(p => p[2]),
+  y: track.p.map(p => p[1]), s: Array.from(track.s), v: Array.from(track.vmax) }, track);
 scene.add(line.mesh);
-try { line.mesh.visible = localStorage.getItem('hr-line') === '1'; } catch { }
+try { line.setMode(Math.max(0, Math.min(2, Number(localStorage.getItem('hr-line') || 0)))); } catch { }
+// line distance <-> track distance (both are sampled on the same 2 m route stations)
+const lineIdx = (sl) => { let lo = 0, hi = line.n - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (line.s[m] <= sl) lo = m; else hi = m; } return lo + Math.max(0, Math.min(1, (sl - line.s[lo]) / ((line.s[lo + 1] - line.s[lo]) || 1))); };
+const lineToTrackS = (sl) => { const f = Math.min(lineIdx(sl), track.p.length - 1.001), i = Math.floor(f); return track.s[i] + (f - i) * (track.s[i + 1] - track.s[i]); };
+const playerLineS = () => { const f = line.index(car.proj), i = Math.floor(f); return line.s[i] + (f - i) * (line.s[i + 1] - line.s[i]); };
 status('Paving roads…');
 scene.add(buildRoads(W.route, W.roads, terrain));
 status('Building houses…');
@@ -98,23 +105,51 @@ const world = { terrain, track, forest, buildings: blds.colliders, waterY };
 // player: black WRX STI hatch; rivals: blue BRZs (real glTF models if present in public/models/)
 status('Loading cars…');
 const [stiProto, brzProto] = await Promise.all([loadCarModel('sti'), loadCarModel('brz')]);
-const STI_BLACK = 0x0b0c0f;
-const makeSti = (color) => stiProto ? fitCar(stiProto, { length: 4.415, color, envMap }) : wrxModel(color);
-const makeBrz = (color) => brzProto ? fitCar(brzProto, { length: 4.24, color, envMap, eyeY: 1.05, hoodY: 0.93 }) : wrxModel(color, { interior: false });
+const STI_BLACK = 0x07080a;
+const carEnv = carEnvironment(renderer);
+// 2018+ WRX STI sedan in Crystal Black Silica; real model if public/models/sti exists, else procedural
+const makeSti = (color, interior = true) => stiProto
+  ? fitCar(stiProto, { length: 4.595, color, envMap: carEnv, rimColor: 0x26282c, caliperColor: 0xf2c200 })
+  : buildSTI(color, { envMap: carEnv, interior });
+const makeBrz = (color) => brzProto ? fitCar(brzProto, { length: 4.24, color, envMap: carEnv, eyeY: 1.05, hoodY: 0.93 }) : buildBRZ(color, { envMap: carEnv });
 const car = new Car(world, STI_BLACK, makeSti(STI_BLACK)); scene.add(car.mesh);
+// live rear-view mirror for the cockpit: a small camera at the mirror looking back, rendered to a texture
+const mirrorRT = new THREE.WebGLRenderTarget(512, 160);
+const mirrorCam = new THREE.PerspectiveCamera(19, 512 / 160, 0.12, 900);
+const mirrorMesh = (() => {
+  const g = new THREE.PlaneGeometry(0.235, 0.07), uv = g.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i));          // a mirror flips left/right
+  const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ map: mirrorRT.texture }));
+  m.rotation.y = Math.PI;                                                 // face the driver
+  return m;
+})();
+if (car.mesh.userData.mirror) car.mesh.userData.mirror.add(mirrorMesh);
+const mq = new THREE.Quaternion();
+let mirrorTick = 0;
+function renderMirror() {
+  const anchor = car.mesh.userData.mirror; if (!anchor) return;
+  anchor.getWorldPosition(mirrorCam.position);
+  anchor.getWorldQuaternion(mq);
+  mirrorCam.quaternion.copy(mq);                                          // camera looks down -z = backwards
+  mirrorCam.rotateX(0.02);
+  mirrorMesh.visible = false;
+  const auto = renderer.shadowMap.autoUpdate; renderer.shadowMap.autoUpdate = false;
+  renderer.setRenderTarget(mirrorRT); renderer.render(scene, mirrorCam); renderer.setRenderTarget(null);
+  renderer.shadowMap.autoUpdate = auto; mirrorMesh.visible = true;
+}
 const input = new Input();
 const engine = new Engine();
 const CHECK_EVERY = 1000;
 const checkpoints = []; for (let s = CHECK_EVERY; s < track.length - 100; s += CHECK_EVERY) checkpoints.push(s);
 
 const rivals = [
-  { name: 'Coyote', color: 0x1d4fb5, skill: 0.95, lane: 1.7 },   // WR Blue Pearl
-  { name: 'Moose', color: 0x0f2a6b, skill: 0.91, lane: -1.6 },   // Galaxy Blue
-  { name: 'Osprey', color: 0x2c6fd6, skill: 0.87, lane: 1.6 },   // Sapphire Blue
-].map((r, k) => ({ ...r, mesh: makeBrz(r.color), s: -9 - k * 9, v: 0, done: null, wobble: Math.random() * 10 }));
+  { name: 'Coyote', color: 0x1d4fb5, skill: 0.96 },   // WR Blue Pearl
+  { name: 'Moose', color: 0x0f2a6b, skill: 0.93 },    // Galaxy Blue
+  { name: 'Osprey', color: 0x2c6fd6, skill: 0.90 },   // Sapphire Blue
+].map((r, k) => ({ ...r, mesh: makeBrz(r.color), s: 0, v: 0, off: 0, offT: 0, offPrev: 0, done: null, wobble: Math.random() * 10 }));
 rivals.forEach(r => scene.add(r.mesh));
 
-const ghostMesh = stiProto ? fitCar(stiProto, { length: 4.415, color: 0xffffff }) : wrxModel(0xffffff, { interior: false });
+const ghostMesh = makeSti(0xffffff, false);
 ghostMesh.traverse(o => { if (o.material) { o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.35; o.material.depthWrite = false; } o.castShadow = false; });
 scene.add(ghostMesh);
 let best = null; try { best = JSON.parse(localStorage.getItem('hr-best') || 'null'); } catch { }
@@ -126,7 +161,8 @@ function reset() {
   // start in the right-hand lane
   const lane = laneOffset(p, -1.6);
   car.place(lane.x, lane.z, yaw);
-  rivals.forEach((r, k) => { r.s = 10 + k * 9; r.v = 0; r.done = null; });
+  // rivals line up ahead of you, two abreast, then merge onto the racing line
+  rivals.forEach((r, k) => { r.s = 12 + k * 9; r.v = 0; r.done = null; r.off = r.offT = r.offPrev = (k % 2 === 0 ? 3.2 : 0); r.ts = lineToTrackS(r.s); });
   race = { phase: 'countdown', t: -3.5, next: 0, splits: [], rec: [], finished: null, lastS: 0, wrong: 0, impact: 0 };
   $('result').hidden = true;
 }
@@ -167,27 +203,42 @@ const clock = new THREE.Clock();
 const camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
 let camMode = 0, firstFrame = true, camWasInside = false, gaugeT = 0, camYaw = 0;
 const camQ = new THREE.Quaternion(), camQ2 = new THREE.Quaternion(), camE = new THREE.Euler();
-const tmp = {};
+const tmp = {}, tmp2 = {};
 
 function updateRivals(dt) {
+  const racing = race.phase === 'racing' || race.phase === 'finished';
+  const pS = playerLineS(), pOff = 0;
   for (const r of rivals) {
-    if (race.phase === 'racing' || race.phase === 'finished') {
-      if (r.s < track.length) {
-        const p = track.at(r.s + r.v * 1.2, tmp);
-        const target = p.vmax * r.skill * (1 + 0.04 * Math.sin(clock.elapsedTime * 0.3 + r.wobble));
-        r.v += Math.max(-9 * dt, Math.min(Math.min(4.6, 150 / Math.max(r.v, 5)) * dt, target - r.v));
-        r.s += r.v * dt;
-        if (r.s >= track.length && !r.done) r.done = race.t;
-      } else r.v = Math.max(0, r.v - 6 * dt);
-    }
-    const p = track.at(Math.min(r.s, track.length - 1), tmp);
-    const lane = laneOffset(p, r.lane);
+    if (racing && r.s < line.length) {
+      const here = line.sample(r.s, 0, tmp), ahead = line.sample(r.s + r.v * 0.6 + 2, 0, tmp2);
+      let target = Math.min(here.v, ahead.v + 1) * r.skill * (1 + 0.025 * Math.sin(clock.elapsedTime * 0.37 + r.wobble));
+      // traffic: the nearest car ahead (rivals and you) within 16 m
+      let gap = 1e9, other = null;
+      for (const o of rivals) if (o !== r && o.s - r.s > 0 && o.s - r.s < gap) { gap = o.s - r.s; other = { v: o.v, off: o.off }; }
+      if (pS - r.s > 0 && pS - r.s < gap) { gap = pS - r.s; other = { v: Math.max(car.vx, 0), off: pOff }; }
+      if (other && gap < 16) {
+        // pull out to the side with room, and don't drive into the car while still alongside
+        const alpha = line.alpha ? line.alpha[Math.floor(lineIdx(r.s))] : 0;
+        const side = (alpha + other.off) > 0 ? -2.0 : 2.0;
+        r.offT = Math.max(-2.3, Math.min(2.3, alpha + side)) - alpha;   // stay on the pavement
+        if (Math.abs(r.off - other.off) < 1.6 && gap < 7) target = Math.min(target, other.v - 0.5);
+      } else r.offT = 0;
+      r.off += Math.max(-1.2 * dt, Math.min(1.2 * dt, r.offT - r.off));
+      r.v += Math.max(-9.5 * dt, Math.min(Math.min(4.6, 150 / Math.max(r.v, 5)) * dt, target - r.v));
+      r.v = Math.max(0, r.v);
+      r.s += r.v * dt;
+      if (r.s >= line.length && !r.done) r.done = race.t;
+    } else if (racing) r.v = Math.max(0, r.v - 6 * dt);
+    r.ts = lineToTrackS(Math.min(r.s, line.length - 0.5));
+    const p = line.sample(Math.min(r.s, line.length - 0.5), r.off, tmp);
     // keep rivals off the player: slide over if overlapping
-    const dx = lane.x - car.pos.x, dz = lane.z - car.pos.z, d = Math.hypot(dx, dz);
-    let x = lane.x, z = lane.z;
+    const dx = p.x - car.pos.x, dz = p.z - car.pos.z, d = Math.hypot(dx, dz);
+    let x = p.x, z = p.z;
     if (d < 2.4 && d > 0.01) { x += dx / d * (2.4 - d); z += dz / d * (2.4 - d); }
     r.mesh.position.set(x, terrain.heightAt(x, z), z);
-    r.mesh.rotation.set(0, Math.atan2(p.hx, p.hz), 0);
+    const steerYaw = Math.atan2((r.off - r.offPrev) / Math.max(dt, 1e-3), Math.max(r.v, 3));
+    r.offPrev = r.off;
+    r.mesh.rotation.set(0, Math.atan2(p.hx, p.hz) + steerYaw, 0);
     const pitch = Math.atan(terrain.heightAt(x + p.hx * 1.3, z + p.hz * 1.3) - terrain.heightAt(x - p.hx * 1.3, z - p.hz * 1.3)) / 2.6;
     r.mesh.rotateX(-pitch);
     for (const w of r.mesh.userData.wheels) w.spin.rotation.x += r.v * dt / 0.317;
@@ -199,7 +250,7 @@ function position() {
   let pos = 1;
   for (const r of rivals) {
     if (race.finished != null) { if (r.done != null && r.done < race.finished) pos++; }
-    else if (r.s > car.proj.s) pos++;
+    else if (r.ts > car.proj.s) pos++;
   }
   void me; return pos;
 }
@@ -210,7 +261,11 @@ function frame() {
   input.poll();
 
   if (input.pressed('KeyC')) camMode = (camMode + 1) % 4;
-  if (input.pressed('KeyL')) { line.mesh.visible = !line.mesh.visible; try { localStorage.setItem('hr-line', line.mesh.visible ? '1' : '0'); } catch { } flash(line.mesh.visible ? 'Racing line on' : 'Racing line off'); }
+  if (input.pressed('KeyL')) {
+    line.setMode((line.mode + 1) % LINE_MODES.length);
+    try { localStorage.setItem('hr-line', String(line.mode)); } catch { }
+    flash(['Racing line off', 'Racing line: full', 'Racing line: braking zones only'][line.mode]);
+  }
   if (input.pressed('KeyE')) car.shift(1);
   if (input.pressed('KeyQ')) car.shift(-1);
   if (input.pressed('KeyT')) { car.auto = !car.auto; flash(car.auto ? 'Automatic shifting' : 'Manual shifting (E up / Q down)'); }
@@ -278,7 +333,7 @@ function frame() {
   }
 
   // racing line colours from progress along it and current speed
-  { const i = Math.min(car.proj.i, line.n - 2), t = car.proj.t || 0; line.update(line.s[i] + t * (line.s[i + 1] - line.s[i]), Math.max(car.vx, 0)); }
+  line.update(car.proj, Math.max(car.vx, 0));
 
   // streaming
   terrain.update(car.pos.x, car.pos.z);
@@ -299,7 +354,7 @@ function frame() {
     camQ.setFromRotationMatrix(car.mesh.matrixWorld);
     camE.set(-car.bodyPitch * k - 0.035, Math.PI, -car.bodyRoll * k, 'YXZ');
     camera.quaternion.copy(camQ).multiply(camQ2.setFromEuler(camE));
-    camera.fov = camMode === 2 ? 72 : 68;
+    camera.fov = camMode === 2 ? 66 : 68;
   } else {
     const back = camMode === 0 ? 6.8 : 11, up = camMode === 0 ? 2.2 : 4.2;
     // fixed distance behind the car at any speed; only the heading is smoothed
@@ -346,6 +401,7 @@ function frame() {
 
   engine.update(car, camMode === 2);
   if (window.__cam) { camera.position.copy(window.__cam.p); camera.lookAt(window.__cam.t); camera.fov = 62; camera.updateProjectionMatrix(); }
+  if (camMode === 2 && (mirrorTick = (mirrorTick + 1) % 2) === 0) renderMirror();   // mirror refreshes at half rate
   renderer.render(scene, camera);
 }
 

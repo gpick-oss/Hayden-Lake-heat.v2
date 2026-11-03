@@ -1,63 +1,34 @@
 import * as THREE from 'three';
 
-// Driving line: a minimum-curvature path inside the road edges with a speed profile for the STI,
-// drawn as chevrons that are green where you can stay on the power, yellow to ease off and red
-// to brake, judged from your current speed against what each corner ahead allows.
-const MU_LAT = 10.0;   // usable lateral accel (m/s^2), a bit under the car's 1.13 g skidpad limit
-const BRAKE = 9.5;     // braking the line plans for (m/s^2); the car can do ~11.5 with ABS
-const POWER = 150;     // wheel power / mass (W/kg) for the acceleration pass
+// The driving line. Geometry and target speeds come from public/world/racing_line.json, built by
+// tools/racing_line.py (minimum-curvature line inside the pavement) and tools/racingline.mjs (lap
+// simulation with this car's measured grip/braking/power, verified by driving the whole stage with
+// the physics). Each chevron is coloured by comparing your speed with the target speed at that
+// spot: green = you can be on the power there, yellow = lift/ease off, red = you're too fast for
+// it, so the first red chevron is where to start braking.
+export const LINE_MODES = ['off', 'full', 'braking'];
 
 export class RacingLine {
-  constructor(track, terrain) {
-    const P = track.p, n = P.length, half = track.w / 2 - 1.05; // keep the car's width inside the paint
-    // lateral offset (left of travel) per point, relaxed toward the chord of its neighbours
-    const nx = new Float32Array(n), nz = new Float32Array(n), off = new Float32Array(n);
-    for (let i = 0; i < n; i++) {
-      const a = P[Math.max(i - 1, 0)], b = P[Math.min(i + 1, n - 1)];
-      let dx = b[0] - a[0], dz = b[2] - a[2]; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
-      nx[i] = dz; nz[i] = -dx;   // left of travel (x east, z south)
-    }
-    const X = new Float32Array(n), Z = new Float32Array(n);
-    const pos = () => { for (let i = 0; i < n; i++) { X[i] = P[i][0] + nx[i] * off[i]; Z[i] = P[i][2] + nz[i] * off[i]; } };
-    for (const span of [12, 6, 3, 1]) {
-      for (let it = 0; it < 120; it++) {
-        pos();
-        for (let i = span; i < n - span; i++) {
-          const mx = (X[i - span] + X[i + span]) / 2, mz = (Z[i - span] + Z[i + span]) / 2;
-          const want = off[i] + ((mx - X[i]) * nx[i] + (mz - Z[i]) * nz[i]);
-          off[i] = Math.max(-half, Math.min(half, off[i] + 0.5 * (want - off[i])));
-        }
-      }
-    }
-    // start and finish on the right-hand side like the grid
-    for (let i = 0; i < n; i++) { const e = Math.min(i, n - 1 - i); if (e < 40) off[i] = off[i] * (e / 40) + -1.6 * (1 - e / 40); }
-    pos();
-    this.x = X; this.z = Z; this.n = n;
-    this.y = new Float32Array(n); for (let i = 0; i < n; i++) this.y[i] = P[i][1] - 0.05;
-    this.s = new Float32Array(n);
-    for (let i = 1; i < n; i++) this.s[i] = this.s[i - 1] + Math.hypot(X[i] - X[i - 1], Z[i] - Z[i - 1]);
-
-    // speed profile: lateral limit from curvature, then braking and power passes
-    const v = new Float32Array(n), k = 5;
-    for (let i = 0; i < n; i++) {
-      const a = Math.max(i - k, 0), c = Math.min(i + k, n - 1);
-      const ax = X[i] - X[a], az = Z[i] - Z[a], bx = X[c] - X[i], bz = Z[c] - Z[i];
-      const cross = ax * bz - az * bx, la = Math.hypot(ax, az), lb = Math.hypot(bx, bz), lc = Math.hypot(X[c] - X[a], Z[c] - Z[a]);
-      const curv = la * lb * lc > 1e-6 ? Math.abs(2 * cross / (la * lb * lc)) : 0;
-      v[i] = Math.min(Math.sqrt(MU_LAT / Math.max(curv, 1e-5)), 67);
-    }
-    for (let i = n - 2; i >= 0; i--) v[i] = Math.min(v[i], Math.sqrt(v[i + 1] ** 2 + 2 * BRAKE * (this.s[i + 1] - this.s[i])));
-    v[0] = 0;
-    for (let i = 1; i < n; i++) { const a = Math.min(9, POWER / Math.max(v[i - 1], 3)); v[i] = Math.min(v[i], Math.sqrt(v[i - 1] ** 2 + 2 * a * (this.s[i] - this.s[i - 1]))); }
-    this.v = v;
-
+  constructor(data, track) {
+    this.n = data.n; this.x = data.x; this.z = data.z; this.y = data.y; this.s = data.s; this.v = data.v; this.alpha = data.alpha || null;
+    this.track = track;
+    this.mode = 0;
     this.mesh = this.build();
     this.mesh.visible = false;
-    this.terrain = terrain;
   }
 
+  static async load(track) {
+    try {
+      const r = await fetch('world/racing_line.json');
+      if (r.ok && (r.headers.get('content-type') || '').includes('json')) return new RacingLine(await r.json(), track);
+    } catch { }
+    return null;
+  }
+
+  setMode(m) { this.mode = m; this.mesh.visible = m !== 0; }
+
   build() {
-    const n = this.n, w = 0.55;
+    const n = this.n, w = 0.6;    // half-width (m)
     const pos = new Float32Array(n * 2 * 3), uv = new Float32Array(n * 2 * 2);
     this.col = new Float32Array(n * 2 * 4);
     for (let i = 0; i < n; i++) {
@@ -65,52 +36,73 @@ export class RacingLine {
       let dx = this.x[b] - this.x[a], dz = this.z[b] - this.z[a]; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
       for (let s = 0; s < 2; s++) {
         const sg = s ? 1 : -1, k = i * 2 + s;
-        pos[k * 3] = this.x[i] - dz * w * sg; pos[k * 3 + 1] = this.y[i] + 0.04; pos[k * 3 + 2] = this.z[i] + dx * w * sg;
-        uv[k * 2] = s; uv[k * 2 + 1] = this.s[i] / 1.6;
+        // right side first so the chevron texture points along the direction of travel
+        pos[k * 3] = this.x[i] + dz * w * sg; pos[k * 3 + 1] = this.y[i] - 0.04; pos[k * 3 + 2] = this.z[i] - dx * w * sg;
+        uv[k * 2] = s; uv[k * 2 + 1] = this.s[i] / 2.4;
       }
     }
     const idx = [];
-    for (let i = 0; i < n - 1; i++) { const a = i * 2, b = a + 1, c = a + 2, d = a + 3; idx.push(a, b, c, b, d, c); }
+    for (let i = 0; i < n - 1; i++) { const a = i * 2, b = a + 1, c = a + 2, d = a + 3; idx.push(a, c, b, b, c, d); }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     g.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     this.colAttr = new THREE.BufferAttribute(this.col, 4); this.colAttr.setUsage(THREE.DynamicDrawUsage);
     g.setAttribute('color', this.colAttr);
     g.setIndex(idx);
-    // chevron texture (points along +v = direction of travel)
-    const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+    g.computeVertexNormals();
+
+    // chevron arrow with a dark rim so it reads on pale asphalt and in shadow
+    const c = document.createElement('canvas'); c.width = 128; c.height = 128;
     const x = c.getContext('2d');
-    x.strokeStyle = '#fff'; x.lineWidth = 11; x.lineCap = 'round'; x.lineJoin = 'round';
-    x.beginPath(); x.moveTo(8, 50); x.lineTo(32, 22); x.lineTo(56, 50); x.stroke();
-    const tex = new THREE.CanvasTexture(c); tex.wrapT = THREE.RepeatWrapping; tex.anisotropy = 8;
+    const arrow = () => { x.beginPath(); x.moveTo(14, 104); x.lineTo(64, 40); x.lineTo(114, 104); };
+    x.lineCap = 'round'; x.lineJoin = 'round';
+    x.strokeStyle = 'rgba(0,0,0,0.6)'; x.lineWidth = 40; arrow(); x.stroke();
+    x.strokeStyle = '#fff'; x.lineWidth = 26; arrow(); x.stroke();
+    const tex = new THREE.CanvasTexture(c); tex.wrapT = THREE.RepeatWrapping; tex.anisotropy = 8; tex.colorSpace = THREE.SRGBColorSpace;
     const mat = new THREE.MeshBasicMaterial({ map: tex, vertexColors: true, transparent: true, depthWrite: false,
       polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8, fog: true });
     const m = new THREE.Mesh(g, mat); m.frustumCulled = false;
     return m;
   }
 
-  // colour the next ~450 m from the car's progress and speed
-  update(sCar, speed) {
+  // index on the line for a track projection (both use the same 2 m route stations)
+  index(proj) { return Math.min(this.n - 2, Math.max(0, proj.i)) + (proj.t || 0); }
+
+  // colour ~380 m ahead of the car from its current speed
+  update(proj, speed) {
     if (!this.mesh.visible) return;
     const col = this.col, n = this.n;
-    let i0 = 0, lo = 0, hi = n - 1;
-    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (this.s[m] < sCar) lo = m; else hi = m; }
-    i0 = lo;
-    const from = Math.max(0, i0), to = Math.min(n - 1, i0 + 230);
+    const f = this.index(proj), i0 = Math.floor(f), sCar = this.s[i0] + (f - i0) * (this.s[i0 + 1] - this.s[i0]);
+    const from = Math.max(0, i0), to = Math.min(n - 1, i0 + 190);
     if (this.lastFrom !== undefined) for (let i = this.lastFrom; i <= this.lastTo; i++) { col[i * 8 + 3] = 0; col[i * 8 + 7] = 0; }
+    const v = Math.max(speed, 0);
     for (let i = from; i <= to; i++) {
-      const d = Math.max(this.s[i] - sCar, 0.5), vt = this.v[i];
-      // decel needed from current speed to make this point's speed
-      const need = (speed * speed - vt * vt) / (2 * d);
-      let r, g, b;
-      if (speed > vt + 0.5 && need > BRAKE * 0.6) { r = 1; g = 0.12; b = 0.1; }
-      else if (speed > vt * 0.94 && need > 0) { r = 1; g = 0.8; b = 0.1; }
-      else { r = 0.15; g = 0.95; b = 0.3; }
-      const fade = Math.min(1, (this.s[i] - sCar - 1) / 7) * Math.min(1, (to - i) / 40);
-      const a = Math.max(0, fade) * 0.85;
+      const vt = Math.max(this.v[i], 1);
+      const q = v / vt;                         // > 1: too fast for this spot
+      let r, g, b, need;
+      if (q <= 0.97) { r = 0.16; g = 0.92; b = 0.36; need = 0; }
+      else if (q <= 1.04) { const u = (q - 0.97) / 0.07; r = 0.16 + 0.84 * u; g = 0.92 - 0.1 * u; b = 0.36 - 0.26 * u; need = 0.5 * u; }
+      else { const u = Math.min(1, (q - 1.04) / 0.08); r = 1; g = 0.82 - 0.7 * u; b = 0.1 - 0.02 * u; need = 0.5 + 0.5 * u; }
+      const ahead = this.s[i] - sCar;
+      let a = Math.min(1, (ahead - 2) / 6) * Math.min(1, (to - i) / 45);
+      if (this.mode === 2) a *= need > 0.05 ? 1 : 0;   // braking-zones-only mode
+      a = Math.max(0, a);
       for (let s = 0; s < 2; s++) { const k = (i * 2 + s) * 4; col[k] = r; col[k + 1] = g; col[k + 2] = b; col[k + 3] = a; }
     }
     this.lastFrom = from; this.lastTo = to;
     this.colAttr.needsUpdate = true;
   }
+
+  // position on the line + lateral offset, and the target speed, at distance s (for AI drivers)
+  sample(s, off, out) {
+    let lo = 0, hi = this.n - 1;
+    while (hi - lo > 1) { const m = (lo + hi) >> 1; if (this.s[m] <= s) lo = m; else hi = m; }
+    const i = lo, j = Math.min(lo + 1, this.n - 1), t = Math.max(0, Math.min(1, (s - this.s[i]) / ((this.s[j] - this.s[i]) || 1)));
+    let dx = this.x[j] - this.x[i], dz = this.z[j] - this.z[i]; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+    out.x = this.x[i] + (this.x[j] - this.x[i]) * t + dz * off;
+    out.z = this.z[i] + (this.z[j] - this.z[i]) * t - dx * off;
+    out.hx = dx; out.hz = dz; out.v = this.v[i] + (this.v[j] - this.v[i]) * t;
+    return out;
+  }
+  get length() { return this.s[this.n - 1]; }
 }
