@@ -5,6 +5,7 @@ import { Track } from './track.js';
 import { Car } from './wrx.js';
 import { wrxModel, drawGauges } from './wrxModel.js';
 import { loadCarModel, fitCar } from './carModels.js';
+import { RacingLine } from './racingLine.js';
 import { Input } from './input.js';
 import { Engine } from './audio.js';
 
@@ -65,6 +66,9 @@ const terrain = new Terrain(W.terrBuf, W.meta.lake);
 terrain.buildCoarse(W.farTex);
 scene.add(terrain.group);
 const track = new Track(W.route);
+const line = new RacingLine(track, terrain);
+scene.add(line.mesh);
+try { line.mesh.visible = localStorage.getItem('hr-line') === '1'; } catch { }
 status('Paving roads…');
 scene.add(buildRoads(W.route, W.roads, terrain));
 status('Building houses…');
@@ -206,6 +210,7 @@ function frame() {
   input.poll();
 
   if (input.pressed('KeyC')) camMode = (camMode + 1) % 4;
+  if (input.pressed('KeyL')) { line.mesh.visible = !line.mesh.visible; try { localStorage.setItem('hr-line', line.mesh.visible ? '1' : '0'); } catch { } flash(line.mesh.visible ? 'Racing line on' : 'Racing line off'); }
   if (input.pressed('KeyE')) car.shift(1);
   if (input.pressed('KeyQ')) car.shift(-1);
   if (input.pressed('KeyT')) { car.auto = !car.auto; flash(car.auto ? 'Automatic shifting' : 'Manual shifting (E up / Q down)'); }
@@ -271,6 +276,9 @@ function frame() {
     ghostMesh.position.set(a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u);
     ghostMesh.rotation.set(0, a[3] + (b[3] - a[3]) * u, 0);
   }
+
+  // racing line colours from progress along it and current speed
+  { const i = Math.min(car.proj.i, line.n - 2), t = car.proj.t || 0; line.update(line.s[i] + t * (line.s[i + 1] - line.s[i]), Math.max(car.vx, 0)); }
 
   // streaming
   terrain.update(car.pos.x, car.pos.z);
