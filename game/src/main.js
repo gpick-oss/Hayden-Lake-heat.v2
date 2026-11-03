@@ -7,6 +7,7 @@ import { drawGauges } from './wrxModel.js';
 import { buildSTI, buildBRZ, carEnvironment } from './carBuilder.js';
 import { loadCarModel, fitCar } from './carModels.js';
 import { RacingLine, LINE_MODES } from './racingLine.js';
+import { LineDriver } from './driver.js';
 import { Input } from './input.js';
 import { Engine } from './audio.js';
 
@@ -138,6 +139,9 @@ function renderMirror() {
   renderer.shadowMap.autoUpdate = auto; mirrorMesh.visible = true;
 }
 const input = new Input();
+// demo lap: the same driver that validated the line can take over (P)
+const autoDriver = new LineDriver(line, { kUs: line.kUs ?? 0.0007 });
+let autopilot = false;
 const engine = new Engine();
 const CHECK_EVERY = 1000;
 const checkpoints = []; for (let s = CHECK_EVERY; s < track.length - 100; s += CHECK_EVERY) checkpoints.push(s);
@@ -266,6 +270,7 @@ function frame() {
     try { localStorage.setItem('hr-line', String(line.mode)); } catch { }
     flash(['Racing line off', 'Racing line: full', 'Racing line: braking zones only'][line.mode]);
   }
+  if (input.pressed('KeyP')) { autopilot = !autopilot; autoDriver.i = Math.floor(line.index(car.proj)); flash(autopilot ? 'Autopilot: driving the racing line (P to take over)' : 'You have control'); }
   if (input.pressed('KeyE')) car.shift(1);
   if (input.pressed('KeyQ')) car.shift(-1);
   if (input.pressed('KeyT')) { car.auto = !car.auto; flash(car.auto ? 'Automatic shifting' : 'Manual shifting (E up / Q down)'); }
@@ -275,7 +280,8 @@ function frame() {
   if (input.pressed('KeyO')) { quality = (quality + 1) % 3; localStorage.setItem('hr-quality', quality); location.reload(); }
 
   race.t += dt;
-  const controls = race.phase === 'countdown' ? { steer: 0, throttle: input.state.throttle, brake: 0, handbrake: false, hold: true } : (window.__auto || input.state);
+  const controls = race.phase === 'countdown' ? { steer: 0, throttle: input.state.throttle, brake: 0, handbrake: false, hold: true }
+    : (window.__auto || (autopilot ? autoDriver.drive(car) : input.state));
   if (race.phase === 'countdown') {
     const n = Math.ceil(-race.t);
     $('count').textContent = n > 0 ? n : 'GO!';
@@ -386,7 +392,7 @@ function frame() {
   $('rpmval').textContent = Math.round(car.rpm / 10) * 10;
   $('boost').textContent = `${(car.boost * 20 - (1 - car.load) * 8).toFixed(0)} psi`;
   $('abs').style.opacity = car.absActive ? 1 : 0.15;
-  $('mode').textContent = car.auto ? 'AUTO' : 'MANUAL';
+  $('mode').textContent = autopilot ? 'AUTOPILOT' : car.auto ? 'AUTO' : 'MANUAL';
   gaugeT += dt;
   if (camMode === 2 && gaugeT > 0.05) { gaugeT = 0; drawGauges(u.gauges, car.rpm, mph, $('gear').textContent, car.boost * 20); }
   $('time').textContent = fmt(race.phase === 'countdown' ? 0 : (race.finished ?? race.t + (race.penalty || 0)));

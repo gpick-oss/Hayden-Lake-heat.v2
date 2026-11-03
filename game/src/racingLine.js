@@ -12,6 +12,12 @@ export class RacingLine {
   constructor(data, track) {
     this.n = data.n; this.x = data.x; this.z = data.z; this.y = data.y; this.s = data.s; this.v = data.v; this.alpha = data.alpha || null;
     this.track = track;
+    this.kUs = data.meta?.kUs;
+    // heading (yaw convention) and signed curvature, for drivers that follow the line
+    const n = this.n; this.h = new Float64Array(n); this.k = new Float64Array(n);
+    for (let i = 0; i < n; i++) { const a = Math.max(i - 1, 0), b = Math.min(i + 1, n - 1); this.h[i] = Math.atan2(this.x[b] - this.x[a], this.z[b] - this.z[a]); }
+    for (let i = 1; i < n; i++) { let d = this.h[i] - this.h[i - 1]; d = Math.atan2(Math.sin(d), Math.cos(d)); this.h[i] = this.h[i - 1] + d; }
+    for (let i = 0; i < n; i++) { const a = Math.max(i - 3, 0), b = Math.min(i + 3, n - 1); this.k[i] = (this.h[b] - this.h[a]) / Math.max(this.s[b] - this.s[a], 1e-3); }
     this.mode = 0;
     this.mesh = this.build();
     this.mesh.visible = false;
