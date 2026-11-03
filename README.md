@@ -19,7 +19,7 @@ Everything in the world is built from real data:
     ./run.sh            # opens http://localhost:5199
 
 Controls: W/↑ gas, S/↓ brake (hold at a stop to reverse), A/D steer, Space handbrake,
-E/Q shift up/down, T auto/manual, L racing line, C camera (chase, far, cockpit, hood), R reset to road (+2 s),
+E/Q shift up/down, T auto/manual, L racing line, K car collisions on/off, P demo lap, C camera (chase, far, cockpit, hood), R reset to road (+2 s),
 M mute, O quality. Gamepads work (RT/LT, left stick, RB/LB shift, A handbrake, B camera, Y reset).
 
 ## The car

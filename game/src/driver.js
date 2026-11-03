@@ -10,6 +10,8 @@ export class LineDriver {
     this.wheelbase = 2.62;
     this.out = { steer: 0, throttle: 0, brake: 0, handbrake: false, analog: true };
     this.e = 0; this.headErr = 0;
+    this.bias = 0;            // lateral offset from the line (m, + = left), e.g. to pass a car
+    this.speedCap = Infinity; // follow a slower car
   }
 
   locate(x, z) {
@@ -63,7 +65,7 @@ export class LineDriver {
     this.headErr = he;
     const ay = v * v * kAhead;
     const ff = Math.atan(this.wheelbase * kAhead) + this.kUs * ay;
-    const fb = -0.9 * (he - beta0) - Math.atan(2.0 * this.e / (v + 3)) - 0.08 * (car.r - v * this.at(L.k, s));
+    const fb = -0.9 * (he - beta0) - Math.atan(2.0 * (this.e - this.bias) / (v + 3)) - 0.08 * (car.r - v * this.at(L.k, s));
     const delta = ff + fb;
     const lock = Math.min(0.56, 0.07 + 4.2 / Math.max(Math.abs(car.vx), 1));
     o.steer = Math.max(-1, Math.min(1, delta / lock));
@@ -71,8 +73,8 @@ export class LineDriver {
     // speed: the profile already contains the brake points (its braking curve is the fastest you
     // can be at each spot and still make the corner), so: over the target here -> brake as hard
     // as it takes to follow the curve a moment ahead; under it -> full throttle
-    const vt = this.pace * this.at(L.v, s + 1 + v * 0.08);
-    const look = 2 + v * 0.35, vtAhead = this.pace * this.at(L.v, s + look);
+    const vt = Math.min(this.speedCap, this.pace * this.at(L.v, s + 1 + v * 0.08));
+    const look = 2 + v * 0.35, vtAhead = Math.min(this.speedCap, this.pace * this.at(L.v, s + look));
     const aFF = Math.max(0, (v * v - vtAhead * vtAhead) / (2 * look));
     const err = vt - v;
     if (err < -0.15 || aFF > 4) {
@@ -81,7 +83,7 @@ export class LineDriver {
     } else if (err > 0.15) { o.throttle = Math.min(1, 0.7 + err * 0.8); o.brake = 0; }
     else { o.throttle = 0.4 + err; o.brake = 0; }
     // running wide: lift
-    if (Math.abs(this.e) > 1.1) o.throttle *= 0.5;
+    if (Math.abs(this.e - this.bias) > 1.1) o.throttle *= 0.5;
     return o;
   }
 }

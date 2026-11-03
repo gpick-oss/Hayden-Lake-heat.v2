@@ -76,6 +76,11 @@ try { line.setMode(Math.max(0, Math.min(2, Number(localStorage.getItem('hr-line'
 // line distance <-> track distance (both are sampled on the same 2 m route stations)
 const lineIdx = (sl) => { let lo = 0, hi = line.n - 1; while (hi - lo > 1) { const m = (lo + hi) >> 1; if (line.s[m] <= sl) lo = m; else hi = m; } return lo + Math.max(0, Math.min(1, (sl - line.s[lo]) / ((line.s[lo + 1] - line.s[lo]) || 1))); };
 const lineToTrackS = (sl) => { const f = Math.min(lineIdx(sl), track.p.length - 1.001), i = Math.floor(f); return track.s[i] + (f - i) * (track.s[i + 1] - track.s[i]); };
+const playerLineOff = () => {
+  const f = line.index(car.proj), i = Math.min(Math.floor(f), line.n - 2);
+  let dx = line.x[i + 1] - line.x[i], dz = line.z[i + 1] - line.z[i]; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+  return (car.pos.x - line.x[i]) * dz - (car.pos.z - line.z[i]) * dx;
+};
 const playerLineS = () => { const f = line.index(car.proj), i = Math.floor(f); return line.s[i] + (f - i) * (line.s[i + 1] - line.s[i]); };
 status('Paving roads…');
 scene.add(buildRoads(W.route, W.roads, terrain));
@@ -150,7 +155,7 @@ const rivals = [
   { name: 'Coyote', color: 0x1d4fb5, skill: 0.96 },   // WR Blue Pearl
   { name: 'Moose', color: 0x0f2a6b, skill: 0.93 },    // Galaxy Blue
   { name: 'Osprey', color: 0x2c6fd6, skill: 0.90 },   // Sapphire Blue
-].map((r, k) => ({ ...r, mesh: makeBrz(r.color), s: 0, v: 0, off: 0, offT: 0, offPrev: 0, done: null, wobble: Math.random() * 10 }));
+].map((r, k) => ({ ...r, mesh: makeBrz(r.color), s: 0, v: 0, off: 0, offT: 0, offPrev: 0, latV: 0, wob: 0, wobV: 0, yaw: 0, done: null, wobble: Math.random() * 10 }));
 rivals.forEach(r => scene.add(r.mesh));
 
 const ghostMesh = makeSti(0xffffff, false);
@@ -166,7 +171,7 @@ function reset() {
   const lane = laneOffset(p, -1.6);
   car.place(lane.x, lane.z, yaw);
   // rivals line up ahead of you, two abreast, then merge onto the racing line
-  rivals.forEach((r, k) => { r.s = 12 + k * 9; r.v = 0; r.done = null; r.off = r.offT = r.offPrev = (k % 2 === 0 ? 3.2 : 0); r.ts = lineToTrackS(r.s); });
+  rivals.forEach((r, k) => { r.s = 12 + k * 9; r.v = 0; r.done = null; r.off = r.offT = r.offPrev = (k % 2 === 0 ? 3.2 : 0); r.latV = r.wob = r.wobV = 0; r.ts = lineToTrackS(r.s); });
   race = { phase: 'countdown', t: -3.5, next: 0, splits: [], rec: [], finished: null, lastS: 0, wrong: 0, impact: 0 };
   $('result').hidden = true;
 }
@@ -211,7 +216,7 @@ const tmp = {}, tmp2 = {};
 
 function updateRivals(dt) {
   const racing = race.phase === 'racing' || race.phase === 'finished';
-  const pS = playerLineS(), pOff = 0;
+  const pS = playerLineS(), pOff = playerLineOff();
   for (const r of rivals) {
     if (racing && r.s < line.length) {
       const here = line.sample(r.s, 0, tmp), ahead = line.sample(r.s + r.v * 0.6 + 2, 0, tmp2);
@@ -228,25 +233,144 @@ function updateRivals(dt) {
         if (Math.abs(r.off - other.off) < 1.6 && gap < 7) target = Math.min(target, other.v - 0.5);
       } else r.offT = 0;
       r.off += Math.max(-1.2 * dt, Math.min(1.2 * dt, r.offT - r.off));
+      // knocked sideways by a hit: drift, scrubbed off by the tyres, then steer back to the line
+      r.off += r.latV * dt; r.latV *= Math.exp(-2.2 * dt);
       r.v += Math.max(-9.5 * dt, Math.min(Math.min(4.6, 150 / Math.max(r.v, 5)) * dt, target - r.v));
       r.v = Math.max(0, r.v);
       r.s += r.v * dt;
       if (r.s >= line.length && !r.done) r.done = race.t;
     } else if (racing) r.v = Math.max(0, r.v - 6 * dt);
+    // stay on (or near) the pavement after a shove
+    const alphaHere = line.alpha ? line.alpha[Math.floor(lineIdx(Math.min(r.s, line.length - 0.5)))] : 0;
+    const offAbs = alphaHere + r.off;
+    if (Math.abs(offAbs) > 4.2) { r.off = Math.sign(offAbs) * 4.2 - alphaHere; r.latV = 0; }
+    // yaw wobble from a hit settles like a car catching a slide
+    r.wobV += (-14 * r.wob - 5 * r.wobV) * dt; r.wob += r.wobV * dt;
     r.ts = lineToTrackS(Math.min(r.s, line.length - 0.5));
     const p = line.sample(Math.min(r.s, line.length - 0.5), r.off, tmp);
-    // keep rivals off the player: slide over if overlapping
-    const dx = p.x - car.pos.x, dz = p.z - car.pos.z, d = Math.hypot(dx, dz);
-    let x = p.x, z = p.z;
-    if (d < 2.4 && d > 0.01) { x += dx / d * (2.4 - d); z += dz / d * (2.4 - d); }
+    const x = p.x, z = p.z;
     r.mesh.position.set(x, terrain.heightAt(x, z), z);
     const steerYaw = Math.atan2((r.off - r.offPrev) / Math.max(dt, 1e-3), Math.max(r.v, 3));
     r.offPrev = r.off;
-    r.mesh.rotation.set(0, Math.atan2(p.hx, p.hz) + steerYaw, 0);
+    r.yaw = Math.atan2(p.hx, p.hz) + steerYaw + r.wob;
+    r.px = x; r.pz = z;
+    r.mesh.rotation.set(0, r.yaw, 0);
     const pitch = Math.atan(terrain.heightAt(x + p.hx * 1.3, z + p.hz * 1.3) - terrain.heightAt(x - p.hx * 1.3, z - p.hz * 1.3)) / 2.6;
     r.mesh.rotateX(-pitch);
     for (const w of r.mesh.userData.wheels) w.spin.rotation.x += r.v * dt / 0.317;
   }
+}
+
+// ---------------------------------------------------------------- car-to-car contact (toggle: K)
+// Cars are oriented boxes at their real footprint; contacts are resolved with impulses (restitution
+// + friction), so a nudge from behind pushes a rival along and a hit off-centre spins your car.
+let carCollisions = true; try { carCollisions = localStorage.getItem('hr-collide') !== '0'; } catch { }
+const STI_BOX = { hl: 2.3, hw: 0.9, off: -0.244, m: 1560, I: 2450 };
+const BRZ_BOX = { hl: 2.08, hw: 0.89, off: -0.09, m: 1270, I: 1900 };
+function playerBody() {
+  const fx = Math.sin(car.yaw), fz = Math.cos(car.yaw), lx = Math.cos(car.yaw), lz = -Math.sin(car.yaw);
+  return { kind: 'player', fx, fz, lx, lz, hl: STI_BOX.hl, hw: STI_BOX.hw, m: STI_BOX.m, I: STI_BOX.I,
+    cx: car.pos.x + fx * STI_BOX.off, cz: car.pos.z + fz * STI_BOX.off,
+    vx: fx * car.vx + lx * car.vy, vz: fz * car.vx + lz * car.vy, w: car.r, ox: car.pos.x, oz: car.pos.z };
+}
+function rivalBody(r) {
+  const fx = Math.sin(r.yaw), fz = Math.cos(r.yaw), lx = Math.cos(r.yaw), lz = -Math.sin(r.yaw);
+  return { kind: 'rival', r, fx, fz, lx, lz, hl: BRZ_BOX.hl, hw: BRZ_BOX.hw, m: BRZ_BOX.m, I: BRZ_BOX.I,
+    cx: r.px + fx * BRZ_BOX.off, cz: r.pz + fz * BRZ_BOX.off,
+    vx: fx * r.v + lx * r.latV, vz: fz * r.v + lz * r.latV, w: r.wobV, ox: r.px, oz: r.pz };
+}
+// separating-axis test for two oriented boxes; returns { n (A<-B), depth } or null
+function sat(A, B) {
+  const dx = A.cx - B.cx, dz = A.cz - B.cz;
+  let best = Infinity, nx = 0, nz = 0;
+  for (const [ax, az] of [[A.fx, A.fz], [A.lx, A.lz], [B.fx, B.fz], [B.lx, B.lz]]) {
+    const ra = A.hl * Math.abs(A.fx * ax + A.fz * az) + A.hw * Math.abs(A.lx * ax + A.lz * az);
+    const rb = B.hl * Math.abs(B.fx * ax + B.fz * az) + B.hw * Math.abs(B.lx * ax + B.lz * az);
+    const d = dx * ax + dz * az, o = ra + rb - Math.abs(d);
+    if (o <= 0) return null;
+    if (o < best) { best = o; const sg = d >= 0 ? 1 : -1; nx = ax * sg; nz = az * sg; }
+  }
+  return { nx, nz, depth: best };
+}
+function contactPoint(A, B) {
+  const inside = (P, x, z) => { const dx = x - P.cx, dz = z - P.cz; return Math.abs(dx * P.fx + dz * P.fz) <= P.hl && Math.abs(dx * P.lx + dz * P.lz) <= P.hw; };
+  let sx = 0, sz = 0, n = 0;
+  for (const [P, Q] of [[A, B], [B, A]]) for (const a of [-1, 1]) for (const b of [-1, 1]) {
+    const x = P.cx + P.fx * P.hl * a + P.lx * P.hw * b, z = P.cz + P.fz * P.hl * a + P.lz * P.hw * b;
+    if (inside(Q, x, z)) { sx += x; sz += z; n++; }
+  }
+  return n ? [sx / n, sz / n] : [(A.cx + B.cx) / 2, (A.cz + B.cz) / 2];
+}
+function applyImpulse(b, jx, jz, px, pz, sign) {
+  jx *= sign; jz *= sign;
+  const ox = px - b.ox, oz = pz - b.oz, dw = (oz * jx - ox * jz) / b.I;
+  if (b.kind === 'player') {
+    const vx = b.vx + jx / b.m, vz = b.vz + jz / b.m;
+    car.vx = vx * b.fx + vz * b.fz; car.vy = vx * b.lx + vz * b.lz; car.r += dw;
+    for (const w of car.w) w.omega = car.vx / car.S.wheelR;   // tyres follow the jolt
+  } else {
+    const r = b.r;
+    r.v = Math.max(0, r.v + (jx * b.fx + jz * b.fz) / b.m);
+    r.latV += (jx * b.lx + jz * b.lz) / b.m;
+    r.wobV += dw * 0.6;
+  }
+}
+function moveBody(b, dx, dz) {
+  if (b.kind === 'player') { car.pos.x += dx; car.pos.z += dz; }
+  else { b.r.s += dx * b.fx + dz * b.fz; b.r.off += dx * b.lx + dz * b.lz; }
+}
+function resolve(A, B) {
+  const c = sat(A, B); if (!c) return 0;
+  const { nx, nz, depth } = c;
+  // push apart in proportion to mass
+  const tm = A.m + B.m;
+  moveBody(A, nx * depth * B.m / tm, nz * depth * B.m / tm);
+  moveBody(B, -nx * depth * A.m / tm, -nz * depth * A.m / tm);
+  const [px, pz] = contactPoint(A, B);
+  const va = (b) => { const ox = px - b.ox, oz = pz - b.oz; return [b.vx + b.w * oz, b.vz - b.w * ox]; };
+  const [vax, vaz] = va(A), [vbx, vbz] = va(B);
+  const rvx = vax - vbx, rvz = vaz - vbz, vn = rvx * nx + rvz * nz;
+  if (vn >= 0) return 0;
+  const crossN = (b) => { const ox = px - b.ox, oz = pz - b.oz; return oz * nx - ox * nz; };
+  const k = 1 / A.m + 1 / B.m + crossN(A) ** 2 / A.I + crossN(B) ** 2 / B.I;
+  const e = vn < -1 ? 0.15 : 0, j = -(1 + e) * vn / k;     // no bounce when just leaning on each other
+  // friction along the contact (sideswipes drag each other)
+  let tx = rvx - vn * nx, tz = rvz - vn * nz; const tl = Math.hypot(tx, tz);
+  let jt = 0; if (tl > 1e-3) { tx /= tl; tz /= tl; jt = Math.min(0.35 * j, tl / k); }
+  const Jx = j * nx - jt * tx, Jz = j * nz - jt * tz;
+  applyImpulse(A, Jx, Jz, px, pz, 1);
+  applyImpulse(B, Jx, Jz, px, pz, -1);
+  return -vn;
+}
+function collideCars() {
+  if (!carCollisions) return 0;
+  let hit = 0;
+  for (const r of rivals) {
+    if (r.px === undefined || Math.hypot(r.px - car.pos.x, r.pz - car.pos.z) > 6) continue;
+    hit = Math.max(hit, resolve(playerBody(), rivalBody(r)));
+  }
+  for (let a = 0; a < rivals.length; a++) for (let b = a + 1; b < rivals.length; b++) {
+    const ra = rivals[a], rb = rivals[b];
+    if (ra.px === undefined || Math.hypot(ra.px - rb.px, ra.pz - rb.pz) > 6) continue;
+    resolve(rivalBody(ra), rivalBody(rb));
+  }
+  return hit;
+}
+
+// demo-lap driver racecraft: follow a slower car, pull out to the free side, pass, rejoin the line
+function autopilotTraffic(dt) {
+  const pS = playerLineS();
+  let gap = 1e9, other = null;
+  for (const r of rivals) { const g = r.s - pS; if (g > -3 && g < gap) { gap = g; other = r; } }
+  let biasT = 0; autoDriver.speedCap = Infinity;
+  if (other && gap < 35 && carCollisions) {
+    const alpha = line.alpha ? line.alpha[Math.floor(lineIdx(pS))] : 0;
+    const side = other.off > 0 ? -2.1 : 2.1;
+    biasT = Math.max(-2.25, Math.min(2.25, alpha + other.off + side)) - alpha;
+    // still lined up behind it: hang back until there's room
+    if (gap < 10 && Math.abs(autoDriver.e - other.off) < 1.9) autoDriver.speedCap = Math.max(0, other.v - 0.5);
+  }
+  autoDriver.bias += Math.max(-1.6 * dt, Math.min(1.6 * dt, biasT - autoDriver.bias));
 }
 
 function position() {
@@ -270,6 +394,7 @@ function frame() {
     try { localStorage.setItem('hr-line', String(line.mode)); } catch { }
     flash(['Racing line off', 'Racing line: full', 'Racing line: braking zones only'][line.mode]);
   }
+  if (input.pressed('KeyK')) { carCollisions = !carCollisions; try { localStorage.setItem('hr-collide', carCollisions ? '1' : '0'); } catch { } flash(carCollisions ? 'Car collisions ON' : 'Car collisions OFF (ghost mode)'); }
   if (input.pressed('KeyP')) { autopilot = !autopilot; autoDriver.i = Math.floor(line.index(car.proj)); flash(autopilot ? 'Autopilot: driving the racing line (P to take over)' : 'You have control'); }
   if (input.pressed('KeyE')) car.shift(1);
   if (input.pressed('KeyQ')) car.shift(-1);
@@ -281,7 +406,7 @@ function frame() {
 
   race.t += dt;
   const controls = race.phase === 'countdown' ? { steer: 0, throttle: input.state.throttle, brake: 0, handbrake: false, hold: true }
-    : (window.__auto || (autopilot ? autoDriver.drive(car) : input.state));
+    : (window.__auto || (autopilot ? (autopilotTraffic(dt), autoDriver.drive(car)) : input.state));
   if (race.phase === 'countdown') {
     const n = Math.ceil(-race.t);
     $('count').textContent = n > 0 ? n : 'GO!';
@@ -328,6 +453,8 @@ function frame() {
     if (race.rec.length < race.t * 10) race.rec.push([+car.pos.x.toFixed(2), +car.pos.y.toFixed(2), +car.pos.z.toFixed(2), +car.yaw.toFixed(3)]);
   }
   updateRivals(dt);
+  const contact = collideCars();
+  if (contact > 0) { car.sync(); if (contact > 1.5) engine.thud(Math.min(1, contact / 12)); if (contact > 6) flash('Contact!'); }
 
   // ghost replay
   ghostMesh.visible = !!best?.rec?.length && race.phase !== 'countdown';
@@ -392,7 +519,7 @@ function frame() {
   $('rpmval').textContent = Math.round(car.rpm / 10) * 10;
   $('boost').textContent = `${(car.boost * 20 - (1 - car.load) * 8).toFixed(0)} psi`;
   $('abs').style.opacity = car.absActive ? 1 : 0.15;
-  $('mode').textContent = autopilot ? 'AUTOPILOT' : car.auto ? 'AUTO' : 'MANUAL';
+  $('mode').textContent = (autopilot ? 'AUTOPILOT' : car.auto ? 'AUTO' : 'MANUAL') + (carCollisions ? '' : ' · GHOST');
   gaugeT += dt;
   if (camMode === 2 && gaugeT > 0.05) { gaugeT = 0; drawGauges(u.gauges, car.rpm, mph, $('gear').textContent, car.boost * 20); }
   $('time').textContent = fmt(race.phase === 'countdown' ? 0 : (race.finished ?? race.t + (race.penalty || 0)));
@@ -414,7 +541,8 @@ function frame() {
 addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
 
 reset();
-window.__g = { car, terrain, track, forest, scene, renderer, camera, engine, setCam: (m) => { camMode = m; } };
+window.__g = { car, terrain, track, forest, scene, renderer, camera, engine, rivals, line, setCam: (m) => { camMode = m; }, setCollisions: (on) => { carCollisions = on; },
+  overlap: () => Math.max(0, ...rivals.filter(r => r.px !== undefined).map(r => sat(playerBody(), rivalBody(r))?.depth || 0)) };
 // warm up streaming around the start so the first frame isn't empty
 for (let k = 0; k < 40; k++) { terrain.update(car.pos.x, car.pos.z); forest.update(car.pos.x, car.pos.z, quality > 0); }
 $('loading').hidden = true;

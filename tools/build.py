@@ -106,11 +106,32 @@ def main():
     dist, (ir, ic) = ndimage.distance_transform_edt(np.isnan(road_h), return_indices=True)
     nearest_h = road_h[ir, ic]
     half = ROAD_W / 2
-    flat = dist <= half + 1.0
-    blend = np.clip((dist - (half + 1.0)) / 7.0, 0, 1)
-    shoulder = (dist > half + 1.0) & (dist < half + 8.0)
-    terr[flat] = nearest_h[flat] - 0.12
-    terr[shoulder] = (nearest_h - 0.25)[shoulder] * (1 - blend[shoulder]) + terr[shoulder] * blend[shoulder]
+    # road bed just under the asphalt ribbon (drawn 4 cm higher). Cut slopes (ground above the road)
+    # stay at road level until 4.5 m past the edge so the 2 m terrain triangles can't bridge up through
+    # the asphalt or gravel shoulder; fill slopes (ground below the road) fall away from 1.5 m out.
+    near = dist < half + 12.0
+    o, tg, d = terr[near], nearest_h[near] - 0.12, dist[near]
+    sstep = lambda t: t * t * (3 - 2 * t)
+    t_fill = sstep(np.clip((d - (half + 1.5)) / 8.0, 0, 1))
+    t_cut = sstep(np.clip((d - (half + 4.5)) / 6.0, 0, 1))
+    terr[near] = tg + np.where(o > tg, t_cut, t_fill) * (o - tg)
+    del o, tg, d
+    # conform: the asphalt is drawn from 2 m stations, flat across its width, at station height - 0.08.
+    # Clamp every ground sample under it (and out past the gravel shoulder far enough that no 2 m
+    # terrain triangle can reach up through either ribbon) to 6 cm below that exact surface.
+    from scipy.spatial import cKDTree
+    st, sty = route[::2], rz[::2]
+    s_st = np.r_[0, np.cumsum(np.linalg.norm(np.diff(st, axis=0), axis=1))]
+    s_d = np.arange(0, s_st[-1], 0.25)
+    dense = np.c_[np.interp(s_d, s_st, st[:, 0]), np.interp(s_d, s_st, st[:, 1])]
+    dense_y = np.interp(s_d, s_st, sty)
+    rr, cc = np.nonzero(dist < half + 4.7)
+    px, py = tf * (cc + 0.5, rr + 0.5)
+    _, kk = cKDTree(dense).query(np.c_[px, py])
+    cap = dense_y[kk] - 0.08 - 0.06
+    terr[rr, cc] = np.minimum(terr[rr, cc], cap)
+    print(f"conformed {len(rr)} ground samples under the road ribbons")
+    del rr, cc, px, py, kk, cap
     road_dist = dist  # metres to centreline
 
     # --- chunk grid -----------------------------------------------------------------
@@ -141,7 +162,8 @@ def main():
             fine_list.append((i, j, terr[ys][:, xs]))
     with open(OUT / "terrain.bin", "wb") as f:
         f.write(struct.pack("<6i", nx, ny, CHUNK, FINE, COARSE, len(fine_list)))
-        f.write(struct.pack("<3f", X0 - OX, -(Y1 - OY), LAKE))
+        # vertices sit on pixel centres (+0.5 m), so the mesh lines up with the road and trees
+        f.write(struct.pack("<3f", X0 - OX + 0.5, -(Y1 - OY) + 0.5, LAKE))
         f.write(struct.pack("<2i", len(gx), len(gy)))
         f.write(enc(coarse).tobytes())
         for i, j, a in fine_list:
@@ -252,6 +274,8 @@ def main():
 
     side = []
     route_ls = LineString(route)
+    from scipy.spatial import cKDTree
+    route_tree = cKDTree(route)
     for f in json.load(open(DATA / "ov_segment.geojson"))["features"]:
         pr = f["properties"]
         if pr["subtype"] != "road" or f["geometry"]["type"] != "LineString":
@@ -273,13 +297,23 @@ def main():
             continue
         surf = str(pr.get("road_surface") or "")
         dirt = pr["class"] in ("track", "service") or any(k in surf for k in ("gravel", "dirt", "unpaved"))
-        side.append({"w": w, "dirt": dirt,
-                     "pts": np.c_[sx, hz - LAKE + 0.08, sz].round(2).tolist()})
+        # stop side roads at the race road's edge so they don't paint over its asphalt and lines
+        dmain, _ = route_tree.query(pts)
+        keep = dmain > half + 0.4
+        xyz = np.c_[sx, hz - LAKE + 0.08, sz]
+        runs, cur = [], []
+        for k_, ok in enumerate(keep):
+            if ok: cur.append(xyz[k_])
+            elif cur: runs.append(cur); cur = []
+        if cur: runs.append(cur)
+        for run in runs:
+            if len(run) >= 2:
+                side.append({"w": w, "dirt": dirt, "pts": np.array(run).round(2).tolist()})
     json.dump(side, open(OUT / "roads.json", "w"), separators=(",", ":"))
     print("side roads", len(side))
 
     meta = {"origin_utm": [OX, OY], "lake": LAKE, "water_y": WATER_Y,
-            "extent": [X0 - OX, -(Y1 - OY), nx * CHUNK, ny * CHUNK]}
+            "extent": [X0 - OX + 0.5, -(Y1 - OY) + 0.5, nx * CHUNK, ny * CHUNK]}
     json.dump(meta, open(OUT / "meta.json", "w"))
 
 
