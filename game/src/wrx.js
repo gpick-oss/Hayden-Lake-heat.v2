@@ -35,7 +35,7 @@ const RPM = 60 / (2 * Math.PI);
 const F = [0, 0, 0];
 
 export class Car {
-  constructor(world, color) {
+  constructor(world, color, mesh) {
     this.world = world;             // { terrain, track, forest, buildings, waterY }
     const S = this.S = SPEC;
     this.a = S.wheelbase * (1 - S.frontWeight); this.b = S.wheelbase * S.frontWeight;
@@ -53,7 +53,7 @@ export class Car {
     this.slip = 0; this.absActive = false; this.events = [];
     this.revHold = 0;
     this.proj = { i: 0, d: 0, s: 0, lat: 0, hx: 1, hz: 0 };
-    this.mesh = wrxModel(color);
+    this.mesh = mesh || wrxModel(color);
     this._near = [];
     this._gn = new THREE.Vector3();
   }

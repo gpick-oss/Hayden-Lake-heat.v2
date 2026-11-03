@@ -4,6 +4,7 @@ import { Terrain, Forest, buildRoads, buildBuildings, loadWorld } from './world.
 import { Track } from './track.js';
 import { Car } from './wrx.js';
 import { wrxModel, drawGauges } from './wrxModel.js';
+import { loadCarModel, fitCar } from './carModels.js';
 import { Input } from './input.js';
 import { Engine } from './audio.js';
 
@@ -90,20 +91,26 @@ const water = (() => {
 
 // ---------------------------------------------------------------- race state
 const world = { terrain, track, forest, buildings: blds.colliders, waterY };
-const car = new Car(world, 0x123a8f); scene.add(car.mesh); // WR Blue Mica
+// player: black WRX STI hatch; rivals: blue BRZs (real glTF models if present in public/models/)
+status('Loading cars…');
+const [stiProto, brzProto] = await Promise.all([loadCarModel('sti'), loadCarModel('brz')]);
+const STI_BLACK = 0x0b0c0f;
+const makeSti = (color) => stiProto ? fitCar(stiProto, { length: 4.415, color, envMap }) : wrxModel(color);
+const makeBrz = (color) => brzProto ? fitCar(brzProto, { length: 4.24, color, envMap, eyeY: 1.05, hoodY: 0.93 }) : wrxModel(color, { interior: false });
+const car = new Car(world, STI_BLACK, makeSti(STI_BLACK)); scene.add(car.mesh);
 const input = new Input();
 const engine = new Engine();
 const CHECK_EVERY = 1000;
 const checkpoints = []; for (let s = CHECK_EVERY; s < track.length - 100; s += CHECK_EVERY) checkpoints.push(s);
 
 const rivals = [
-  { name: 'Coyote', color: 0xe8e8e6, skill: 0.95, lane: 1.7 },   // Satin White Pearl
-  { name: 'Moose', color: 0x2a2b2e, skill: 0.91, lane: -1.6 },   // Dark Gray Metallic
-  { name: 'Osprey', color: 0x8c1418, skill: 0.87, lane: 1.6 },   // Lightning Red
-].map((r, k) => ({ ...r, mesh: wrxModel(r.color, { interior: false }), s: -9 - k * 9, v: 0, done: null, wobble: Math.random() * 10 }));
+  { name: 'Coyote', color: 0x1d4fb5, skill: 0.95, lane: 1.7 },   // WR Blue Pearl
+  { name: 'Moose', color: 0x0f2a6b, skill: 0.91, lane: -1.6 },   // Galaxy Blue
+  { name: 'Osprey', color: 0x2c6fd6, skill: 0.87, lane: 1.6 },   // Sapphire Blue
+].map((r, k) => ({ ...r, mesh: makeBrz(r.color), s: -9 - k * 9, v: 0, done: null, wobble: Math.random() * 10 }));
 rivals.forEach(r => scene.add(r.mesh));
 
-const ghostMesh = wrxModel(0xffffff, { interior: false });
+const ghostMesh = stiProto ? fitCar(stiProto, { length: 4.415, color: 0xffffff }) : wrxModel(0xffffff, { interior: false });
 ghostMesh.traverse(o => { if (o.material) { o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.35; o.material.depthWrite = false; } o.castShadow = false; });
 scene.add(ghostMesh);
 let best = null; try { best = JSON.parse(localStorage.getItem('hr-best') || 'null'); } catch { }
@@ -154,7 +161,7 @@ function drawMinimap() {
 // ---------------------------------------------------------------- loop
 const clock = new THREE.Clock();
 const camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
-let camMode = 0, firstFrame = true, camWasInside = false, gaugeT = 0;
+let camMode = 0, firstFrame = true, camWasInside = false, gaugeT = 0, camYaw = 0;
 const camQ = new THREE.Quaternion(), camQ2 = new THREE.Quaternion(), camE = new THREE.Euler();
 const tmp = {};
 
@@ -286,18 +293,18 @@ function frame() {
     camera.quaternion.copy(camQ).multiply(camQ2.setFromEuler(camE));
     camera.fov = camMode === 2 ? 72 : 68;
   } else {
-    const back = camMode === 0 ? 6.8 + spd * 0.025 : 11, up = camMode === 0 ? 2.2 : 4.2;
-    const want = new THREE.Vector3(car.pos.x - fx * back, 0, car.pos.z - fz * back);
-    want.y = Math.max(car.pos.y + up, terrain.heightAt(want.x, want.z) + 1.2);
-    if (firstFrame || camWasInside) { camPos.copy(want); firstFrame = false; }
-    camPos.lerp(want, 1 - Math.exp(-dt * 7));
-    // never let the lagging chase camera swing into the car under hard braking
-    const dx = camPos.x - car.pos.x, dz = camPos.z - car.pos.z, dh = Math.hypot(dx, dz), minD = back * 0.8;
-    if (dh < minD) { camPos.x = car.pos.x + dx / (dh || 1) * minD; camPos.z = car.pos.z + dz / (dh || 1) * minD; }
+    const back = camMode === 0 ? 6.8 : 11, up = camMode === 0 ? 2.2 : 4.2;
+    // fixed distance behind the car at any speed; only the heading is smoothed
+    if (firstFrame || camWasInside) { camYaw = car.yaw; firstFrame = false; }
+    let dy = car.yaw - camYaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+    camYaw += dy * (1 - Math.exp(-dt * 8));
+    const cx = Math.sin(camYaw), cz = Math.cos(camYaw);
+    camPos.set(car.pos.x - cx * back, 0, car.pos.z - cz * back);
+    camPos.y = Math.max(car.pos.y + up, terrain.heightAt(camPos.x, camPos.z) + 1.2);
     camera.position.copy(camPos);
-    camLook.set(car.pos.x + fx * 3, car.pos.y + 1.1, car.pos.z + fz * 3);
+    camLook.set(car.pos.x + cx * 3, car.pos.y + 1.1, car.pos.z + cz * 3);
     camera.lookAt(camLook);
-    camera.fov = 62 + Math.min(12, spd * 0.15);
+    camera.fov = 62;
   }
   camWasInside = inside;
   camera.updateProjectionMatrix();

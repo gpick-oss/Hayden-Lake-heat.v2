@@ -325,7 +325,7 @@ export function wrxModel(color = 0x123a8f, { interior = true } = {}) {
     eye = new THREE.Object3D(); eye.position.set(0.37, 1.21, -0.7); shell.add(eye);
   }
   // hood camera mount
-  const hoodCam = new THREE.Object3D(); hoodCam.position.set(0, 1.03, 0.62); shell.add(hoodCam);
+  const hoodCam = new THREE.Object3D(); hoodCam.position.set(0, 1.0, 1.12); shell.add(hoodCam);
 
   // --- wheels: FL, FR, RL, RR (x>0 = left)
   const wheels = [];
