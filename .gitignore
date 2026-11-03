@@ -3,3 +3,4 @@ data/
 game/node_modules/
 game/dist/
 game/public/world/
+__pycache__/
