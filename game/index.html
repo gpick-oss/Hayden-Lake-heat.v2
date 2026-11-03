@@ -17,7 +17,14 @@
   #br small { font-size: 16px; opacity: .8; }
   #gear { display: inline-block; font-size: 24px; font-weight: 700; margin-left: 10px; padding: 0 8px; border: 2px solid rgba(255,255,255,.7); border-radius: 6px; }
   #rpmbar { width: 220px; height: 6px; background: rgba(255,255,255,.2); border-radius: 3px; margin-top: 8px; margin-left: auto; overflow: hidden; }
+  #rpmbar { position: relative; height: 8px; }
   #rpm { height: 100%; background: linear-gradient(90deg, #6cf, #fd4 70%, #f43); }
+  #redline { position: absolute; left: 89.3%; top: 0; bottom: 0; right: 0; background: rgba(255,40,40,.35); }
+  #rpmbar.shift { box-shadow: 0 0 12px 3px rgba(255,60,40,.9); }
+  .row2 { font-size: 13px; letter-spacing: .06em; display: flex; gap: 12px; justify-content: flex-end; margin-bottom: 2px; font-variant-numeric: tabular-nums; }
+  #abs { color: #ffb020; font-weight: 700; opacity: .15; }
+  #mode { opacity: .8; }
+  #boost { color: #9cf; min-width: 52px; text-align: right; }
   #surface { font-size: 13px; letter-spacing: .1em; color: #e8c88a; height: 16px; }
   #minimap { position: fixed; bottom: 18px; left: 18px; width: 150px; height: 224px; border-radius: 10px; border: 2px solid rgba(255,255,255,.5); box-shadow: 0 4px 18px rgba(0,0,0,.5); pointer-events: none; }
   #count { top: 30%; left: 0; right: 0; text-align: center; font-size: 120px; font-weight: 900; transition: opacity .3s; }
@@ -35,7 +42,7 @@
 </style>
 </head>
 <body>
-<div id="loading"><div><h1>Hayden Lake Run</h1><p id="loading-msg">Loading…</p><p style="margin-top:14px;font-size:13px">E Hayden Lake Rd · 14.5 mi · real lidar terrain, trees and buildings</p></div></div>
+<div id="loading"><div><h1>Hayden Lake Run</h1><p id="loading-msg">Loading…</p><p style="margin-top:14px;font-size:13px">2009 WRX, Stage 2 · E Hayden Lake Rd · 14.5 mi · real lidar terrain, trees and buildings</p></div></div>
 <div class="hud" id="tl">
   <div id="time">0:00.00</div>
   <div class="row"><span id="pos"></span> &nbsp; <span id="cp"></span></div>
@@ -44,14 +51,16 @@
 </div>
 <div class="hud" id="br">
   <div id="surface"></div>
+  <div class="row2"><span id="abs">ABS</span><span id="mode">AUTO</span><span id="boost">0 psi</span></div>
   <div><span id="speed">0</span><span id="gear">1</span></div>
-  <small>MPH</small>
-  <div id="rpmbar"><div id="rpm"></div></div>
+  <small>MPH · <span id="rpmval">0</span> RPM</small>
+  <div id="rpmbar"><div id="rpm"></div><div id="redline"></div></div>
 </div>
 <div class="hud" id="help">
-  W/↑ gas · S/↓ brake/reverse · A D/← → steer · Space handbrake<br>
-  R reset to road · C camera · M mute · Q quality: <span id="quality"></span><br>
-  Gamepad: RT/LT, stick, A handbrake, Y reset
+  W/↑ gas · S/↓ brake (hold at a stop = reverse) · A D/← → steer · Space handbrake<br>
+  E/Q shift up/down · T auto/manual · C camera (chase, far, cockpit, hood)<br>
+  R reset to road · M mute · O quality: <span id="quality"></span><br>
+  Gamepad: RT/LT, stick, RB/LB shift, A handbrake, B camera, Y reset
 </div>
 <canvas id="minimap" width="300" height="448"></canvas>
 <div class="hud" id="count"></div>

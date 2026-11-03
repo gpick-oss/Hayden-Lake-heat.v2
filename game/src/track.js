@@ -15,10 +15,10 @@ export class Track {
       let dh = Math.abs(h2 - h1); if (dh > Math.PI) dh = 2 * Math.PI - dh;
       const ds = Math.max(this.s[Math.min(k + 8, n - 1)] - this.s[Math.max(k - 8, 0)], 1);
       const curv = dh / (ds / 2 + 1e-3);
-      v[k] = Math.min(Math.sqrt(9.0 / Math.max(curv, 1e-4)), 42);
+      v[k] = Math.min(Math.sqrt(10.5 / Math.max(curv, 1e-4)), 62);
     }
-    for (let k = n - 2; k >= 0; k--) { const ds = this.s[k + 1] - this.s[k]; v[k] = Math.min(v[k], Math.sqrt(v[k + 1] ** 2 + 2 * 7.5 * ds)); }
-    for (let k = 1; k < n; k++) { const ds = this.s[k] - this.s[k - 1]; v[k] = Math.min(v[k], Math.sqrt(v[k - 1] ** 2 + 2 * 4.0 * ds)); }
+    for (let k = n - 2; k >= 0; k--) { const ds = this.s[k + 1] - this.s[k]; v[k] = Math.min(v[k], Math.sqrt(v[k + 1] ** 2 + 2 * 9.0 * ds)); }
+    for (let k = 1; k < n; k++) { const ds = this.s[k] - this.s[k - 1]; v[k] = Math.min(v[k], Math.sqrt(v[k - 1] ** 2 + 2 * 4.2 * ds)); }
     this.vmax = v;
   }
 

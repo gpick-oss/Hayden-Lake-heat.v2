@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { Terrain, Forest, buildRoads, buildBuildings, loadWorld } from './world.js';
 import { Track } from './track.js';
-import { Car, carModel } from './car.js';
+import { Car } from './wrx.js';
+import { wrxModel, drawGauges } from './wrxModel.js';
 import { Input } from './input.js';
 import { Engine } from './audio.js';
 
@@ -21,7 +22,7 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.prepend(renderer.domElement);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.3, 6000);
+const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.05, 6000);
 const fogColor = new THREE.Color(0xa9bdd0);
 scene.fog = new THREE.Fog(fogColor, 400, [1400, 2200, 3200][quality]);
 
@@ -89,22 +90,20 @@ const water = (() => {
 
 // ---------------------------------------------------------------- race state
 const world = { terrain, track, forest, buildings: blds.colliders, waterY };
-const car = new Car(world); scene.add(car.mesh);
-const withEnv = (o) => o.traverse(m => { if (m.material?.isMeshStandardMaterial) { m.material.envMap = envMap; m.material.envMapIntensity = 0.8; } });
-withEnv(car.mesh);
+const car = new Car(world, 0x123a8f); scene.add(car.mesh); // WR Blue Mica
 const input = new Input();
 const engine = new Engine();
 const CHECK_EVERY = 1000;
 const checkpoints = []; for (let s = CHECK_EVERY; s < track.length - 100; s += CHECK_EVERY) checkpoints.push(s);
 
 const rivals = [
-  { name: 'Coyote', color: 0x2459c9, skill: 0.93, lane: 1.7 },
-  { name: 'Moose', color: 0xe0a21a, skill: 0.88, lane: -1.6 },
-  { name: 'Osprey', color: 0x23a35a, skill: 0.84, lane: 1.6 },
-].map((r, k) => ({ ...r, mesh: carModel(r.color), s: -9 - k * 9, v: 0, done: null, wobble: Math.random() * 10 }));
-rivals.forEach(r => { withEnv(r.mesh); scene.add(r.mesh); });
+  { name: 'Coyote', color: 0xe8e8e6, skill: 0.95, lane: 1.7 },   // Satin White Pearl
+  { name: 'Moose', color: 0x2a2b2e, skill: 0.91, lane: -1.6 },   // Dark Gray Metallic
+  { name: 'Osprey', color: 0x8c1418, skill: 0.87, lane: 1.6 },   // Lightning Red
+].map((r, k) => ({ ...r, mesh: wrxModel(r.color, { interior: false }), s: -9 - k * 9, v: 0, done: null, wobble: Math.random() * 10 }));
+rivals.forEach(r => scene.add(r.mesh));
 
-const ghostMesh = carModel(0xffffff);
+const ghostMesh = wrxModel(0xffffff, { interior: false });
 ghostMesh.traverse(o => { if (o.material) { o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.35; o.material.depthWrite = false; } o.castShadow = false; });
 scene.add(ghostMesh);
 let best = null; try { best = JSON.parse(localStorage.getItem('hr-best') || 'null'); } catch { }
@@ -155,7 +154,8 @@ function drawMinimap() {
 // ---------------------------------------------------------------- loop
 const clock = new THREE.Clock();
 const camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
-let camMode = 0, physAcc = 0, firstFrame = true;
+let camMode = 0, firstFrame = true, camWasInside = false, gaugeT = 0;
+const camQ = new THREE.Quaternion(), camQ2 = new THREE.Quaternion(), camE = new THREE.Euler();
 const tmp = {};
 
 function updateRivals(dt) {
@@ -164,7 +164,7 @@ function updateRivals(dt) {
       if (r.s < track.length) {
         const p = track.at(r.s + r.v * 1.2, tmp);
         const target = p.vmax * r.skill * (1 + 0.04 * Math.sin(clock.elapsedTime * 0.3 + r.wobble));
-        r.v += Math.max(-8 * dt, Math.min(3.6 * dt, target - r.v));
+        r.v += Math.max(-9 * dt, Math.min(Math.min(4.6, 150 / Math.max(r.v, 5)) * dt, target - r.v));
         r.s += r.v * dt;
         if (r.s >= track.length && !r.done) r.done = race.t;
       } else r.v = Math.max(0, r.v - 6 * dt);
@@ -179,7 +179,7 @@ function updateRivals(dt) {
     r.mesh.rotation.set(0, Math.atan2(p.hx, p.hz), 0);
     const pitch = Math.atan(terrain.heightAt(x + p.hx * 1.3, z + p.hz * 1.3) - terrain.heightAt(x - p.hx * 1.3, z - p.hz * 1.3)) / 2.6;
     r.mesh.rotateX(-pitch);
-    for (const w of r.mesh.userData.wheels) w.w.rotation.x += r.v * dt / 0.34;
+    for (const w of r.mesh.userData.wheels) w.spin.rotation.x += r.v * dt / 0.317;
   }
 }
 
@@ -198,14 +198,17 @@ function frame() {
   const dt = Math.min(clock.getDelta(), 0.05);
   input.poll();
 
-  if (input.pressed('KeyC')) camMode = (camMode + 1) % 3;
+  if (input.pressed('KeyC')) camMode = (camMode + 1) % 4;
+  if (input.pressed('KeyE')) car.shift(1);
+  if (input.pressed('KeyQ')) car.shift(-1);
+  if (input.pressed('KeyT')) { car.auto = !car.auto; flash(car.auto ? 'Automatic shifting' : 'Manual shifting (E up / Q down)'); }
   if (input.pressed('KeyR') && race.phase === 'racing') respawn();
   if (input.pressed('Enter') && race.phase === 'finished') reset();
   if (input.pressed('KeyM')) engine.toggle();
-  if (input.pressed('KeyQ')) { quality = (quality + 1) % 3; localStorage.setItem('hr-quality', quality); location.reload(); }
+  if (input.pressed('KeyO')) { quality = (quality + 1) % 3; localStorage.setItem('hr-quality', quality); location.reload(); }
 
   race.t += dt;
-  const controls = race.phase === 'countdown' ? { steer: 0, throttle: 0, brake: 0, handbrake: true } : (window.__auto || input.state);
+  const controls = race.phase === 'countdown' ? { steer: 0, throttle: input.state.throttle, brake: 0, handbrake: false, hold: true } : (window.__auto || input.state);
   if (race.phase === 'countdown') {
     const n = Math.ceil(-race.t);
     $('count').textContent = n > 0 ? n : 'GO!';
@@ -213,9 +216,11 @@ function frame() {
     if (race.t >= 0) { race.phase = 'racing'; race.t = 0; }
   } else if (race.t > 0.8) $('count').style.opacity = 0;
 
-  physAcc += dt;
-  const h = 1 / 240;
-  while (physAcc >= h) { car.step(h, race.phase === 'finished' ? { steer: 0, throttle: 0, brake: car.vx > 1 ? 0.4 : 0, handbrake: car.vx <= 1 } : controls); physAcc -= h; }
+  car.update(dt, race.phase === 'finished' ? { steer: 0, throttle: 0, brake: car.vx > 1 ? 0.5 : 0, handbrake: car.vx <= 1 } : controls);
+  for (const e of car.events.splice(0)) {
+    if (e === 'bov') engine.event('bov', car.boost);
+    if (e === 'upshift' && car.load > 0.8 && car.rpm > 5500) engine.event('bang');
+  }
   const impact = car.collide();
   if (impact > 4) { engine.thud(Math.min(1, impact / 20)); if (impact > 12) flash('Crash!'); }
   car.sync();
@@ -267,23 +272,35 @@ function frame() {
   // camera
   const fx = Math.sin(car.yaw), fz = Math.cos(car.yaw);
   const spd = car.speed();
-  if (camMode === 2) {
-    camPos.set(car.pos.x + fx * 0.3, car.pos.y + 1.15, car.pos.z + fz * 0.3);
-    camera.position.copy(camPos);
-    camLook.set(car.pos.x + fx * 10, car.pos.y + 1.0 + Math.tan(car.pitch) * 10, car.pos.z + fz * 10);
-    camera.lookAt(camLook);
+  const u = car.mesh.userData;
+  const inside = camMode >= 2;
+  u.materials.glass.opacity = camMode === 2 ? 0.1 : 0.86;
+  if (inside) {
+    // rigidly mounted to the body, so the view can never end up inside the car; the driver's head
+    // only takes half of the body's pitch/roll (neck stabilisation)
+    car.mesh.updateMatrixWorld(true);
+    (camMode === 2 ? u.eye : u.hoodCam).getWorldPosition(camera.position);
+    const k = camMode === 2 ? 0.5 : 1;
+    camQ.setFromRotationMatrix(car.mesh.matrixWorld);
+    camE.set(-car.bodyPitch * k - 0.035, Math.PI, -car.bodyRoll * k, 'YXZ');
+    camera.quaternion.copy(camQ).multiply(camQ2.setFromEuler(camE));
+    camera.fov = camMode === 2 ? 72 : 68;
   } else {
-    // chase camera follows the velocity direction a little so drifts read well
-    const back = camMode === 0 ? 6.5 + spd * 0.03 : 11, up = camMode === 0 ? 2.3 : 4.2;
+    const back = camMode === 0 ? 6.8 + spd * 0.025 : 11, up = camMode === 0 ? 2.2 : 4.2;
     const want = new THREE.Vector3(car.pos.x - fx * back, 0, car.pos.z - fz * back);
     want.y = Math.max(car.pos.y + up, terrain.heightAt(want.x, want.z) + 1.2);
-    if (firstFrame) { camPos.copy(want); firstFrame = false; }
+    if (firstFrame || camWasInside) { camPos.copy(want); firstFrame = false; }
     camPos.lerp(want, 1 - Math.exp(-dt * 7));
+    // never let the lagging chase camera swing into the car under hard braking
+    const dx = camPos.x - car.pos.x, dz = camPos.z - car.pos.z, dh = Math.hypot(dx, dz), minD = back * 0.8;
+    if (dh < minD) { camPos.x = car.pos.x + dx / (dh || 1) * minD; camPos.z = car.pos.z + dz / (dh || 1) * minD; }
     camera.position.copy(camPos);
     camLook.set(car.pos.x + fx * 3, car.pos.y + 1.1, car.pos.z + fz * 3);
     camera.lookAt(camLook);
+    camera.fov = 62 + Math.min(12, spd * 0.15);
   }
-  camera.fov = 62 + Math.min(14, spd * 0.18); camera.updateProjectionMatrix();
+  camWasInside = inside;
+  camera.updateProjectionMatrix();
 
   sunLight.position.set(car.pos.x + sun.x * 200, car.pos.y + sun.y * 200, car.pos.z + sun.z * 200);
   sunLight.target.position.copy(car.pos);
@@ -293,8 +310,15 @@ function frame() {
   // HUD
   const mph = Math.abs(car.vx) * 2.237;
   $('speed').textContent = Math.round(mph);
-  $('gear').textContent = car.vx < -0.5 ? 'R' : car.gear;
+  $('gear').textContent = car.gear === -1 ? 'R' : car.gear === 0 ? 'N' : car.gear;
   $('rpm').style.width = `${Math.min(100, car.rpm / 75)}%`;
+  $('rpmbar').classList.toggle('shift', car.rpm > 6300);
+  $('rpmval').textContent = Math.round(car.rpm / 10) * 10;
+  $('boost').textContent = `${(car.boost * 20 - (1 - car.load) * 8).toFixed(0)} psi`;
+  $('abs').style.opacity = car.absActive ? 1 : 0.15;
+  $('mode').textContent = car.auto ? 'AUTO' : 'MANUAL';
+  gaugeT += dt;
+  if (camMode === 2 && gaugeT > 0.05) { gaugeT = 0; drawGauges(u.gauges, car.rpm, mph, $('gear').textContent, car.boost * 20); }
   $('time').textContent = fmt(race.phase === 'countdown' ? 0 : (race.finished ?? race.t + (race.penalty || 0)));
   $('dist').textContent = `${(Math.min(car.proj.s, track.length) / 1609.34).toFixed(2)} / ${(track.length / 1609.34).toFixed(2)} mi`;
   $('pos').textContent = `${position()}/${rivals.length + 1}`;
@@ -305,7 +329,7 @@ function frame() {
   if (flashT > 0) { flashT -= dt; if (flashT <= 0) $('flash').style.opacity = 0; }
   drawMinimap();
 
-  engine.update(car.rpm, input.state.throttle, car.slip, car.surface, spd);
+  engine.update(car, camMode === 2);
   if (window.__cam) { camera.position.copy(window.__cam.p); camera.lookAt(window.__cam.t); camera.fov = 62; camera.updateProjectionMatrix(); }
   renderer.render(scene, camera);
 }
@@ -313,10 +337,11 @@ function frame() {
 addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); });
 
 reset();
-window.__g = { car, terrain, track, forest, scene, renderer, camera };
+window.__g = { car, terrain, track, forest, scene, renderer, camera, engine, setCam: (m) => { camMode = m; } };
 // warm up streaming around the start so the first frame isn't empty
 for (let k = 0; k < 40; k++) { terrain.update(car.pos.x, car.pos.z); forest.update(car.pos.x, car.pos.z, quality > 0); }
 $('loading').hidden = true;
 $('quality').textContent = ['Low', 'Medium', 'High'][quality];
 addEventListener('keydown', () => engine.start(), { once: true });
+addEventListener('pointerdown', () => engine.start(), { once: true });
 frame();

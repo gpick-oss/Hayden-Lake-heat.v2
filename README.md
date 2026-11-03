@@ -18,8 +18,27 @@ Everything in the world is built from real data:
 
     ./run.sh            # opens http://localhost:5199
 
-Controls: W/↑ gas, S/↓ brake/reverse, A/D steer, Space handbrake, R reset to road (+2 s),
-C camera, M mute, Q quality. Gamepads work (RT/LT, left stick, A handbrake, Y reset).
+Controls: W/↑ gas, S/↓ brake (hold at a stop to reverse), A/D steer, Space handbrake,
+E/Q shift up/down, T auto/manual, C camera (chase, far, cockpit, hood), R reset to road (+2 s),
+M mute, O quality. Gamepads work (RT/LT, left stick, RB/LB shift, A handbrake, B camera, Y reset).
+
+## The car
+
+2009 Subaru WRX 5-door, Stage 2 (~375 hp / 400 lb-ft, 20 psi), straight pipe, on R-compound tyres
+(`src/wrx.js`, all numbers in `SPEC`):
+
+- 1,560 kg with driver, 59.5/40.5 weight split, 2.62 m wheelbase, 0.52 m CG height
+- four independent tyres with combined-slip friction, load sensitivity and relaxation length
+- 5MT ratios 3.454/1.947/1.296/0.972/0.738, 4.444 final; 50/50 viscous centre diff, viscous rear LSD
+- turbo spool with lag, rev limiter, engine braking, auto-clutch launch
+- ABS (front at peak slip, rear held lower so the tail stays planted), 67/33 brake bias
+
+Measured on flat ground: 0-60 mph 4.8 s, 1/4 mile 13.05 s @ 111 mph, 60-0 mph 99 ft,
+1.13 g on the skidpad, top speed ~150 mph.
+
+Engine sound is synthesised live (`src/engine-worklet.js`): boxer pulses arriving in uneven pairs from
+unequal-length headers, a 2.7 m open straight pipe, turbo whistle, compressor-surge flutter on
+lift-off and overrun crackle. `wrx_engine_test.wav` is a scripted pull through the gears.
 
 You race three AI drivers; your best run is saved as a ghost.
 

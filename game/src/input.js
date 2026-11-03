@@ -28,7 +28,7 @@ export class Input {
       if (lt > 0.05) s.brake = lt;
       if (pad.buttons[0]?.pressed || pad.buttons[2]?.pressed) s.handbrake = true;
       const b = (i, code) => { const on = pad.buttons[i]?.pressed; if (on && !this.prev.has(code)) this.pressedNow.add(code); on ? this.prev.add(code) : this.prev.delete(code); };
-      b(3, 'KeyR'); b(5, 'KeyC'); b(9, 'Enter');
+      b(3, 'KeyR'); b(1, 'KeyC'); b(9, 'Enter'); b(5, 'KeyE'); b(4, 'KeyQ'); b(8, 'KeyT');
     }
   }
 }
