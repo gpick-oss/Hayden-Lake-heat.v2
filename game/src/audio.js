@@ -1,6 +1,6 @@
 // Engine (AudioWorklet boxer synth) plus tyre, wind, gravel and impact sounds.
 export class Engine {
-  constructor() { this.ctx = null; this.on = true; this.ready = false; }
+  constructor() { this.ctx = null; this.on = true; this.ready = false; this.duckUntil = 0; }
   async start() {
     if (this.ctx) return;
     const ctx = this.ctx = new AudioContext();
@@ -33,7 +33,8 @@ export class Engine {
     this.p.boost.setTargetAtTime(car.boost, t, 0.03);
     this.p.cut.setValueAtTime(car.cut ? 1 : 0, t);
     this.p.interior.setTargetAtTime(interior ? 1 : 0, t, 0.05);
-    this.engGain.gain.setTargetAtTime(interior ? 0.75 : 0.95, t, 0.1);
+    // the co-driver ducks the engine a few dB while he's talking
+    this.engGain.gain.setTargetAtTime((interior ? 0.75 : 0.95) * (t < this.duckUntil ? 0.7 : 1), t, 0.08);
     const onRoad = car.surface === 'road';
     this.squeal.g.gain.setTargetAtTime(onRoad ? Math.min(0.22, car.slip * 0.35) : 0, t, 0.05);
     this.squeal.fl.frequency.setTargetAtTime(900 + car.slip * 500, t, 0.1);

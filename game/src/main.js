@@ -18,6 +18,7 @@ import { Traffic } from './traffic.js';
 import { Deer } from './deer.js';
 import { Lighting, addCarLamps } from './lighting.js';
 import { generateNotes, CoDriver } from './paceNotes.js';
+import { CoDriverVoice } from './coDriverVoice.js';
 import { buildLandmarks } from './landmarks.js';
 import { inject } from '@vercel/analytics';
 
@@ -177,7 +178,7 @@ const autoDriver = new LineDriver(line, { kUs: line.kUs ?? 0.0007 });   // demo 
 let autopilot = false;
 const engine = new Engine();
 const notes = generateNotes(track, line);
-const coDriver = new CoDriver(notes, $('notes'));
+const coDriver = new CoDriver(notes, $('notes'), new CoDriverVoice(engine));
 
 // checkpoints every km; cps = [start, CP1, CP2, ..., finish]
 const cps = [0]; for (let s = 1000; s < track.length - 100; s += 1000) cps.push(s); cps.push(track.length);
@@ -385,6 +386,11 @@ function frame() {
   if (pressed('KeyL', 'PadUp')) { settings = changeSetting(settings, 'line', (settings.line + 1) % 3); saveSettings(settings); line.setMode(settings.line); flash(['Racing line off', 'Racing line: full', 'Racing line: braking zones only'][settings.line]); }
   if (pressed('KeyK', 'PadDown')) { settings = changeSetting(settings, 'collisions', !settings.collisions); saveSettings(settings); flash(settings.collisions ? 'Car collisions ON' : 'Car collisions OFF (ghost cars)'); }
   if (pressed('KeyN')) { settings = changeSetting(settings, 'time', settings.time === 'night' ? 'day' : 'night'); saveSettings(settings); applySettings('time'); }
+  if (pressed('KeyV')) {
+    const order = ['off', 'voice', 'text'], next = order[(order.indexOf(settings.notes) + 1) % 3];
+    settings = changeSetting(settings, 'notes', next); saveSettings(settings); coDriver.setMode(next);
+    flash({ off: 'Pace notes off', voice: 'Pace notes: co-driver reading', text: 'Pace notes: on screen only' }[next]);
+  }
   if (pressed('KeyH')) { lighting.setHigh(!lighting.high); if (settings.time === 'night') flash(lighting.high ? 'High beams' : 'Low beams'); }
   if (pressed('KeyP')) { autopilot = !autopilot; autoDriver.i = Math.floor(line.index(car.proj)); flash(autopilot ? 'Autopilot: driving the racing line (P to take over)' : 'You have control'); }
   if (pressed('KeyE')) car.shift(1);
@@ -539,7 +545,7 @@ function frame() {
   renderer.render(scene, camera);
 }
 
-function toggleMenu() { menu.toggle(); engine.pause?.(menu.isOpen); }
+function toggleMenu() { menu.toggle(); engine.pause?.(menu.isOpen); if (menu.isOpen) coDriver.hush(); }
 // menu keys are event-driven so quick taps and key-repeat all count
 addEventListener('keydown', (e) => {
   if (e.code === 'Escape') { toggleMenu(); e.preventDefault(); return; }
@@ -549,7 +555,7 @@ addEventListener('resize', () => { renderer.setSize(innerWidth, innerHeight); ca
 
 applySettings();
 reset();
-window.__g = { car, terrain, track, forest, scene, renderer, camera, engine, rivals, traffic, deer, line, notes, menu, lighting, landmarks,
+window.__g = { car, terrain, track, forest, scene, renderer, camera, engine, rivals, traffic, deer, line, notes, coDriver, menu, lighting, landmarks,
   get settings() { return settings; }, setCam: (m) => { camMode = m; }, setCollisions: (on) => { settings = changeSetting(settings, 'collisions', on); },
   set: (k, v) => menu.change(k, v), race: () => race };
 // warm up streaming around the start so the first frame isn't empty

@@ -31,12 +31,12 @@ Everything in the world is built from real data:
 | Random traffic | Off / light / normal / heavy, both lanes |
 | Deer crossings | Each run rolls round(Normal(3, 1.5)) deer, half slow walkers, half fast runners |
 | Racing line | Off / full / braking zones only |
-| Pace notes | Off / on screen / on screen + co-driver voice |
+| Pace notes | Off / on screen + co-driver reads them / on screen only |
 | Cockpit field of view, gearbox, graphics quality | |
 
 Keys: W/↑ gas, S/↓ brake (hold at a stop to reverse), A/D steer, Space handbrake, E/Q shift, T auto/manual,
-C camera, L racing line, K collisions, N night, H high beams, P demo lap, R reset to road (+2 s),
-Backspace restart, M mute.
+C camera, L racing line, K collisions, N night, H high beams, V pace notes (off / co-driver / on screen),
+P demo lap, R reset to road (+2 s), Backspace restart, M mute.
 
 ## Pace notes
 
@@ -45,7 +45,16 @@ generated from the lidar-matched road and the verified racing line: direction + 
 (flat), HP hairpin, SQ square, K kink, long / v.long, < tightens, > opens, ! / !! caution, crests, dips and
 bumps, and the distance to the next call (+ = "into"). Each line has the symbol, the shorthand and the
 spoken call. Grouped by checkpoint so you can learn the stage a section at a time. In game the same notes
-show on screen (and can be read out) — Pace notes in the menu.
+show on screen, and the co-driver reads them out — Pace notes in the menu, or V.
+
+The co-driver is recorded, not the browser's speech engine (which is silent on Linux without
+speech-dispatcher): `game/public/codriver/` holds ~60 clips ("left four", "hairpin right", "long",
+"tightens", "one hundred", ...) made offline with [Piper](https://github.com/rhasspy/piper) (British
+`en_GB-alan-medium` voice). The game stitches each call from them on the Web Audio clock through a
+helmet-intercom filter and ducks the engine while he talks. He starts each call ~3.4 s before the corner,
+never queues more than ~1 s of speech ahead, skips a call the car has already reached, and talks up to 16%
+faster when a dense section would make a call finish late (at racing-line pace every call ends 0.4 s or
+more before its corner). If the clips can't load it falls back to the browser's speech.
 
 ## Landmarks
 
@@ -86,6 +95,7 @@ You race three AI drivers; your best run is saved as a ghost.
     .venv/bin/python tools/racing_line.py [--reverse]   # minimum-curvature racing line candidates
     (cd game && node tools/racingline.mjs [--reverse])  # lap-sims them with the car, verifies by driving
     (cd game && node tools/pacenotes.mjs)               # printable pace notes (HTML + PDF)
+    (cd game && node tools/codriver.mjs [--all])        # co-driver voice clips (needs Piper + ffmpeg)
 
 ## Racing line
 

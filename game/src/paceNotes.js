@@ -143,6 +143,37 @@ export function spoken(nt) {
   return w.join(' ');
 }
 
+// The co-driver's recorded vocabulary: every call is stitched from these clips, the way rally games
+// cut a co-driver's session into samples. Key -> what gets recorded (public/codriver/<key>.mp3,
+// made by tools/codriver.mjs). Calls carry their own intonation, so "left four" is one clip, not two.
+const LONGDIST = { 1100: 'eleven hundred', 1200: 'twelve hundred', 1300: 'thirteen hundred', 1400: 'fourteen hundred', 1500: 'fifteen hundred', 1600: 'sixteen hundred', 1700: 'seventeen hundred', 1800: 'eighteen hundred', 1900: 'nineteen hundred', 2000: 'two thousand' };
+export const VOICE_TEXT = (() => {
+  const v = {};
+  for (const [d, side] of [['L', 'left'], ['R', 'right']]) {
+    for (let g = 1; g <= 6; g++) v[`${d}${g}`] = `${side} ${WORD[g]}`;
+    v[`HP${d}`] = `hairpin ${side}`; v[`SQ${d}`] = `square ${side}`; v[`K${d}`] = `kink ${side}`;
+  }
+  Object.assign(v, { crest: 'crest', jump: 'jump', bump: 'bump', dip: 'dip', long: 'long', vlong: 'very long', tightens: 'tightens',
+    opens: 'opens', overcrest: 'over crest', caution: 'caution', into: 'into', finish: 'to finish' });
+  for (const n of [20, 30, 40, 50, 60, 70, 80, 100, 120, 150, 200, 250, 300, 350, 400, 500, 600, 700, 800, 1000]) v[`d${n}`] = NUMWORD(n);
+  for (const [n, w] of Object.entries(LONGDIST)) v[`d${n}`] = w;
+  return v;
+})();
+// the clips for one note, in the order spoken() says them
+export function voiceTokens(nt) {
+  const t = [];
+  if (nt.caution === 2) t.push('caution');
+  if (nt.type === 'hazard') t.push(nt.hazard);
+  else if (nt.type === 'HP' || nt.type === 'SQ' || nt.type === 'K') t.push(`${nt.type}${nt.dir}`);
+  else t.push(`${nt.dir}${nt.g}`);
+  for (const m of nt.mods) t.push(m === 'crest' ? 'overcrest' : m);
+  if (nt.caution === 1) t.push('caution');
+  if (nt.next === 'finish') t.push('finish');
+  else if (nt.next === 'into') t.push('into');
+  else { const d = Number(nt.next); t.push(`d${d > 2000 ? 2000 : d}`); }
+  return t;
+}
+
 // the symbol: a curved arrow whose sharpness follows the grade, with the number inside, plus small
 // marks for the modifiers. Returns an SVG string (used by the printable notes and the HUD).
 export function glyph(nt, size = 64) {
@@ -181,23 +212,61 @@ export function glyph(nt, size = 64) {
     `<text x="${lx}" y="${s * 0.86}" text-anchor="middle" font-size="${s * (label.length > 1 ? 0.24 : 0.34)}" font-weight="800" fill="currentColor">${label}</text>${marks.join('')}</svg>`;
 }
 
-// in-game co-driver: shows the next calls and (optionally) reads them out ahead of time
+// in-game co-driver: shows the next calls and (optionally) reads them out ahead of time.
+// voice: a CoDriverVoice (recorded clips); without one, or if its clips fail to load, the browser's
+// speechSynthesis reads the words instead.
+const LEAD_S = 3.4;        // start reading a call this many seconds before the car reaches it
+const MAX_QUEUE = 1.1;     // never queue more than this much speech ahead, so calls can't lag the road
 export class CoDriver {
-  constructor(notes, el) { this.notes = notes; this.el = el; this.mode = 'off'; this.idx = 0; this.spokenUpTo = -1; }
-  setMode(m) { this.mode = m; this.el.hidden = m === 'off'; if (m !== 'voice' && typeof speechSynthesis !== 'undefined') speechSynthesis.cancel(); }
-  reset(s) { this.idx = 0; while (this.idx < this.notes.length && this.notes[this.idx].s < s) this.idx++; this.spokenUpTo = this.idx - 1; this.lastHtml = ''; }
+  constructor(notes, el, voice = null) { this.notes = notes; this.el = el; this.voice = voice; this.mode = 'off'; this.idx = 0; this.spokenUpTo = -1; this.said = []; }
+  setMode(m) { this.mode = m; this.el.hidden = m === 'off'; if (m !== 'voice') this.hush(); }
+  reset(s) {
+    this.hush();
+    this.idx = 0; while (this.idx < this.notes.length && this.notes[this.idx].s < s) this.idx++;
+    this.spokenUpTo = this.idx - 1; this.lastHtml = '';
+  }
+  // stop talking (menu opened, restart); calls cut off mid-sentence get read again afterwards
+  hush() {
+    if (typeof speechSynthesis !== 'undefined') speechSynthesis.cancel();
+    if (this.voice?.clips) {
+      const now = this.voice.engine.ctx.currentTime, cut = this.said.find(c => c.end > now);
+      if (cut) this.spokenUpTo = Math.min(this.spokenUpTo, cut.q - 1);
+      this.voice.stop();
+    }
+    this.said = [];
+  }
   update(s, v) {
     if (this.mode === 'off') return;
     while (this.idx < this.notes.length && this.notes[this.idx].sEnd < s - 5) this.idx++;
     const up = this.notes.slice(this.idx, this.idx + 3);
     const html = up.map((nt, k) => `<div class="note${k ? ' later' : ''}">${glyph(nt, k ? 40 : 56)}<span>${nt.text}</span></div>`).join('');
     if (html !== this.lastHtml) { this.el.innerHTML = html; this.lastHtml = html; }
-    if (this.mode === 'voice' && typeof speechSynthesis !== 'undefined') {
-      const lead = Math.max(70, v * 3.2);          // read each note ~3 s before it
-      for (let q = Math.max(this.idx, this.spokenUpTo + 1); q < this.notes.length && this.notes[q].s - s < lead; q++) {
-        const u = new SpeechSynthesisUtterance(this.notes[q].words); u.rate = 1.25; u.pitch = 1.0;
-        speechSynthesis.speak(u); this.spokenUpTo = q;
-      }
+    if (this.mode !== 'voice') return;
+    if (this.voice && !this.voice.failed) { if (this.voice.ready()) this.speakClips(s, v); }
+    else this.speakSynth(s, v);
+  }
+  speakClips(s, v) {
+    const V = this.voice, lead = Math.max(80, v * LEAD_S), now = V.engine.ctx.currentTime;
+    this.said = this.said.filter(c => c.end > now);
+    while (V.backlog() < MAX_QUEUE) {
+      let q = Math.max(this.idx, this.spokenUpTo + 1);
+      // a call for a corner the car is already into (or about to be) is no use: skip it
+      while (q < this.notes.length && this.notes[q].s < s + v * 0.7) q++;
+      if (q >= this.notes.length || this.notes[q].s - s > lead) break;
+      const nt = this.notes[q], tokens = voiceTokens(nt);
+      // talk faster when the call would otherwise finish late (dense sections at speed)
+      const spare = (nt.s - s) / Math.max(v, 1) - V.backlog() - V.length(tokens);
+      const rate = v < 5 ? 1 : 1 + 0.16 * Math.min(1, Math.max(0, (1.6 - spare) / 1.2));
+      this.said.push({ q, end: V.say(tokens, rate) });
+      this.spokenUpTo = q;
+    }
+  }
+  speakSynth(s, v) {
+    if (typeof speechSynthesis === 'undefined') return;
+    const lead = Math.max(70, v * 3.2);
+    for (let q = Math.max(this.idx, this.spokenUpTo + 1); q < this.notes.length && this.notes[q].s - s < lead; q++) {
+      const u = new SpeechSynthesisUtterance(this.notes[q].words); u.rate = 1.25; u.pitch = 1.0;
+      speechSynthesis.speak(u); this.spokenUpTo = q;
     }
   }
 }

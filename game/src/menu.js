@@ -35,7 +35,7 @@ export class Menu {
       { key: 'traffic', label: 'Random traffic', options: [['off', 'Off'], ['light', 'Light'], ['normal', 'Normal'], ['heavy', 'Heavy']] },
       { key: 'deer', label: 'Deer crossings', options: ON_OFF.slice().reverse() },
       { key: 'line', label: 'Racing line', options: [[0, 'Off'], [1, 'Full'], [2, 'Braking zones only']] },
-      { key: 'notes', label: 'Pace notes', options: [['off', 'Off'], ['text', 'On screen'], ['voice', 'On screen + co-driver voice']] },
+      { key: 'notes', label: 'Pace notes', options: [['off', 'Off'], ['voice', 'On screen + co-driver reads them'], ['text', 'On screen only']] },
       { key: 'cockpitFov', label: 'Cockpit field of view', options: [70, 75, 80, 82, 85, 90, 95, 100].map(v => [v, `${v}°`]) },
       { key: 'gearbox', label: 'Gearbox', options: [['auto', 'Automatic'], ['manual', 'Manual (E/Q)']] },
       { key: 'quality', label: 'Graphics quality', options: [[0, 'Low'], [1, 'Medium'], [2, 'High']] },
